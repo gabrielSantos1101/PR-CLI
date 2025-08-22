@@ -1,0 +1,21 @@
+{
+  "name": "pr-description-generator",
+  "version": "1.0.0",
+  "description": "A CLI tool to generate Git PR descriptions from commit history.",
+  "main": "index.js",
+  "bin": {
+    "generate-pr-desc": "./index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "git",
+    "cli",
+    "pr",
+    "pull-request"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {}
+}
