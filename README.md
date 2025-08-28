@@ -13,42 +13,18 @@ A simple and powerful Command Line Interface (CLI) tool designed to streamline t
 
 ## Installation
 
-1.  **Clone the repository:**
+You can install `pr-cli-generator` via npm:
 
-    ```bash
-    git clone https://github.com/gabrielSantos1101/PR-CLI.git
-    cd PR-CLI
-    ```
-
-2.  **Install dependencies:**
-
-    ```bash
-    npm install
-    ```
-
-3.  **Set up your Google Gemini API Key:**
-    Obtain a `GEMINI_API_KEY` from Google AI Studio.
-    Set it as an environment variable:
-
-    ```bash
-    # For Linux/macOS
-    export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-
-    # For Windows (Command Prompt)
-    set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-
-    # For Windows (PowerShell)
-    $env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-    ```
-
-    Alternatively, you can create a `.env` file in the project root with `GEMINI_API_KEY=YOUR_GEMINI_API_KEY`.
+```bash
+npm install -g pr-cli-generator
+```
 
 ## Usage
 
-To generate a PR description, navigate to your Git repository and run:
+After installation, you can use the `pr-cli` command in your Git repository:
 
 ```bash
-node index.js
+pr-cli
 ```
 
 ### Options
@@ -56,8 +32,38 @@ node index.js
 - `-c`, `--copy`: Automatically copy the generated PR description to the clipboard.
 
   ```bash
-  node index.js --copy
+  pr-cli --copy
   ```
+
+- `-d`, `--description <text>`: Provide a manual description to enhance the generated PR description.
+
+  ```bash
+  pr-cli --description "This PR adds a new feature for user authentication."
+  ```
+
+- `--github`: Generates a GitHub link with the PR template pre-filled.
+
+  ```bash
+  pr-cli --github
+  ```
+
+### Setup Google Gemini API Key
+
+Obtain a `GEMINI_API_KEY` from Google AI Studio.
+Set it as an environment variable:
+
+```bash
+# For Linux/macOS
+export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+
+# For Windows (Command Prompt)
+set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+
+# For Windows (PowerShell)
+$env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+```
+
+Alternatively, you can create a `.env` file in the project root with `GEMINI_API_KEY=YOUR_GEMINI_API_KEY`.
 
 ### Workflow
 
