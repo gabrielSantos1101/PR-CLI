@@ -231,9 +231,14 @@ function generatePRDescription(categorizedCommits, templateContent = null) {
  * Generates content using Google Gemini based on commit messages and a template.
  * @param {string[]} commitMessages An array of raw commit messages.
  * @param {string} templateContent The content of the chosen PR template.
+ * @param {string} templateLanguage The language of the PR template (e.g., "en", "pt").
  * @returns {Promise<string>} The AI-generated content for the PR description.
  */
-async function generateAIContent(commitMessages, templateContent) {
+async function generateAIContent(
+  commitMessages,
+  templateContent,
+  templateLanguage
+) {
   if (!GEMINI_API_KEY) {
     console.warn("GEMINI_API_KEY is not set. Skipping AI content generation.");
     return "";
@@ -249,11 +254,12 @@ Here's the process:
 3.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.
 4.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it's a placeholder like #ISSUE_NUMBER) or indicate that it's not applicable (e.g., "N/A" or "No relevant changes").
 5.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.
+6.  **Generate in the specified language:** The PR description should be generated in the language specified by 'templateLanguage'.
 
 Commit Messages:
 ${commitMessages.join("\n")}
 
-PR Template:
+PR Template (Language: ${templateLanguage}):
 ${templateContent}
 
 Generated PR Description:
@@ -295,12 +301,37 @@ async function main() {
     templateContent = await chooseTemplate(templates);
   }
 
+  let templateLanguage = "en";
+
+  if (templateContent) {
+    const { selectedLanguage } = await inquirer.default.prompt([
+      {
+        type: "list",
+        name: "selectedLanguage",
+        message: "Select the language of the PR template:",
+        choices: [
+          { name: "English", value: "en" },
+          { name: "Portuguese", value: "pt" },
+          { name: "Spanish", value: "es" },
+          { name: "French", value: "fr" },
+          { name: "German", value: "de" },
+          { name: "Italian", value: "it" },
+          { name: "Japanese", value: "ja" },
+          { name: "Chinese", value: "zh" },
+        ],
+        default: "en",
+      },
+    ]);
+    templateLanguage = selectedLanguage;
+  }
+
   let prDescription;
   if (templateContent) {
     console.log("Generating AI-enhanced PR description with template...");
     const aiGeneratedContent = await generateAIContent(
       commitMessages,
-      templateContent
+      templateContent,
+      templateLanguage
     );
     prDescription = aiGeneratedContent;
   } else {
