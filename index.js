@@ -263,7 +263,8 @@ function generatePRDescription(categorizedCommits, templateContent = null) {
 async function generateAIContent(
   commitMessages,
   templateContent,
-  templateLanguage
+  templateLanguage,
+  devDescription
 ) {
   if (!GEMINI_API_KEY) {
     console.warn("GEMINI_API_KEY is not set. Skipping AI content generation.");
@@ -284,6 +285,9 @@ Here's the process:
 
 Commit Messages:
 ${commitMessages.join("\n")}
+
+Developer's Description of Work:
+${devDescription || "No additional description provided."}
 
 PR Template (Language: ${templateLanguage}):
 ${templateContent}
@@ -325,6 +329,15 @@ async function main() {
     return;
   }
 
+  const { devDescription } = await inquirer.default.prompt([
+    {
+      type: "input",
+      name: "devDescription",
+      message: "Please provide a brief description of what you did:",
+      default: "",
+    },
+  ]);
+
   const categorized = categorizeCommits(commitMessages);
 
   const templates = await getPRTemplates();
@@ -363,7 +376,8 @@ async function main() {
     const aiGeneratedContent = await generateAIContent(
       commitMessages,
       templateContent,
-      templateLanguage
+      templateLanguage,
+      devDescription
     );
     prDescription = aiGeneratedContent;
   } else {
