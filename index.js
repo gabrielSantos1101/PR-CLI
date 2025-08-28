@@ -7,8 +7,12 @@ const yargs = require("yargs/yargs");
 const { hideBin } = require("yargs/helpers");
 const inquirer = require("inquirer");
 const clipboardy = require("clipboardy");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// Define commit type mappings for PR sections
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
 const COMMIT_TYPES = {
   feat: "Features",
   fix: "Bug Fixes",
@@ -49,15 +53,12 @@ async function executeCommand(command) {
  */
 async function getCommitHistory() {
   try {
-    // Get the current branch name
     const currentBranch = await executeCommand(
       "git rev-parse --abbrev-ref HEAD"
     );
-    // Get the last pushed commit hash for the current branch
     const lastPushCommit = await executeCommand(
       `git merge-base ${currentBranch} origin/${currentBranch}`
     );
-    // Get commit messages since the last push
     const commitLogs = await executeCommand(
       `git log ${lastPushCommit}..HEAD --pretty=format:"%s"`
     );
@@ -91,14 +92,12 @@ function categorizeCommits(commitMessages) {
         }
         categorized[section].push(`- ${description}`);
       } else {
-        // If no specific section, add to a general "Other Changes" or similar
         if (!categorized["Other Changes"]) {
           categorized["Other Changes"] = [];
         }
         categorized["Other Changes"].push(`- ${message}`);
       }
     } else {
-      // Commits that don't follow conventional format
       if (!categorized["Other Changes"]) {
         categorized["Other Changes"] = [];
       }
@@ -132,7 +131,6 @@ async function getPRTemplates() {
       }
     }
 
-    // Check .github/ directly if no subdirectory or if subdirectory is empty
     if (templates.length === 0) {
       const githubDirExists = await fs
         .stat(githubPath)
@@ -150,10 +148,7 @@ async function getPRTemplates() {
         }
       }
     }
-  } catch (error) {
-    // console.warn(`Could not read .github folder for templates: ${error.message}`);
-    // Ignore error if .github folder doesn't exist
-  }
+  } catch (error) {}
   return templates;
 }
 
@@ -232,6 +227,48 @@ function generatePRDescription(categorizedCommits, templateContent = null) {
   return prBody.trim();
 }
 
+/**
+ * Generates content using Google Gemini based on commit messages and a template.
+ * @param {string[]} commitMessages An array of raw commit messages.
+ * @param {string} templateContent The content of the chosen PR template.
+ * @returns {Promise<string>} The AI-generated content for the PR description.
+ */
+async function generateAIContent(commitMessages, templateContent) {
+  if (!GEMINI_API_KEY) {
+    console.warn("GEMINI_API_KEY is not set. Skipping AI content generation.");
+    return "";
+  }
+
+  const prompt = `
+You are an expert in writing Git Pull Request descriptions.
+Your task is to generate a clear, concise, and comprehensive Pull Request description.
+
+Here's the process:
+1.  **Analyze Commit Messages:** Review the provided Git commit messages.
+2.  **Fill Template Sections:** Use the information from the commit messages to fill in the relevant sections of the PR template.
+3.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.
+4.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it's a placeholder like #ISSUE_NUMBER) or indicate that it's not applicable (e.g., "N/A" or "No relevant changes").
+5.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.
+
+Commit Messages:
+${commitMessages.join("\n")}
+
+PR Template:
+${templateContent}
+
+Generated PR Description:
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
+  } catch (error) {
+    console.error("Error generating AI content:", error.message);
+    return "<!-- AI content generation failed. Please fill manually. -->";
+  }
+}
+
 async function main() {
   const argv = yargs(hideBin(process.argv))
     .option("copy", {
@@ -258,7 +295,17 @@ async function main() {
     templateContent = await chooseTemplate(templates);
   }
 
-  const prDescription = generatePRDescription(categorized, templateContent);
+  let prDescription;
+  if (templateContent) {
+    console.log("Generating AI-enhanced PR description with template...");
+    const aiGeneratedContent = await generateAIContent(
+      commitMessages,
+      templateContent
+    );
+    prDescription = aiGeneratedContent;
+  } else {
+    prDescription = generatePRDescription(categorized, templateContent);
+  }
 
   console.log("\n--- Generated PR Description ---\n");
   console.log(prDescription);

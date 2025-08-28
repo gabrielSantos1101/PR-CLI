@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/gabrielSantos1101/PR-CLI#readme",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "clipboardy": "^4.0.0",
     "inquirer": "^12.9.4",
     "yargs": "^18.0.0"
