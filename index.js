@@ -178,6 +178,22 @@ async function run() {
     console.log("Checking for PR templates...");
     const templates = await getPrTemplates();
 
+    let briefDescription = "";
+    const descriptionAnswer = await inquirer.prompt([
+      {
+        type: "input",
+        name: "brief",
+        message:
+          "Please provide a brief description of what you did in this PR:",
+      },
+    ]);
+    briefDescription = descriptionAnswer.brief.trim();
+
+    if (briefDescription) {
+      prDescription =
+        `## Brief Description\n\n${briefDescription}\n\n` + prDescription;
+    }
+
     if (templates.length > 0) {
       let selectedTemplatePath = null;
 
