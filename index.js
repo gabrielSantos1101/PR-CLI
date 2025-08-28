@@ -176,7 +176,7 @@ async function chooseTemplate(templates) {
     value: tplPath,
   }));
 
-  const { selectedTemplatePath } = await inquirer.prompt([
+  const { selectedTemplatePath } = await inquirer.default.prompt([
     {
       type: "list",
       name: "selectedTemplatePath",
