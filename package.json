@@ -17,5 +17,9 @@
   ],
   "author": "",
   "license": "ISC",
-  "dependencies": {}
+  "dependencies": {
+    "clipboardy": "^4.0.0",
+    "commander": "^14.0.0",
+    "inquirer": "^12.9.4"
+  }
 }
