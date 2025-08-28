@@ -6,7 +6,7 @@ const path = require("path");
 const yargs = require("yargs/yargs");
 const { hideBin } = require("yargs/helpers");
 const inquirer = require("inquirer");
-const clipboardy = require("clipboardy");
+const clipboardy = require("clipboardy"); // Re-adding clipboardy
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 /**
@@ -284,15 +284,24 @@ async function openGitHubPR(prDescription, repoUrl, currentBranch, baseBranch) {
 
   const githubPRUrl = `https://github.com/${owner}/${repo}/compare/${baseBranch}...${currentBranch}?expand=1&title=${prTitle}&body=${encodedDescription}`;
 
-  console.log(`Opening GitHub PR page: ${githubPRUrl}`);
-  // This will launch the browser. The user will need to manually confirm the PR creation.
-  // We cannot automate the actual submission due to security and complexity of browser interactions.
-  await browser_action({
-    action: "launch",
-    url: githubPRUrl,
-    task_progress:
-      "- [x] Get GitHub repository URL\n- [x] Get current branch name\n- [x] Construct GitHub new PR URL\n- [x] Launch browser to GitHub PR page\n- [ ] Fill PR description using browser automation\n- [ ] Submit PR (optional, will ask user)\n- [ ] Test the updated CLI",
-  });
+  console.log(`\nGenerated GitHub PR URL: ${githubPRUrl}`);
+  try {
+    await clipboardy.write(githubPRUrl);
+    console.log(
+      "GitHub PR URL copied to clipboard! Please paste it into your browser."
+    );
+  } catch (error) {
+    console.error("Failed to copy GitHub PR URL to clipboard:", error.message);
+  }
+
+  try {
+    await clipboardy.write(prDescription);
+    console.log(
+      "PR description copied to clipboard! Please paste it into the description field on the GitHub page after opening the URL."
+    );
+  } catch (error) {
+    console.error("Failed to copy PR description to clipboard:", error.message);
+  }
 }
 
 /**
