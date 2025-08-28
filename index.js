@@ -9,10 +9,26 @@ const inquirer = require("inquirer");
 const clipboardy = require("clipboardy");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
+/**
+ * Google Gemini API Key.
+ * @type {string}
+ */
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+/**
+ * Google Generative AI instance.
+ * @type {GoogleGenerativeAI}
+ */
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+/**
+ * Generative AI model instance.
+ * @type {import('@google/generative-ai').GenerativeModel}
+ */
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+/**
+ * Mapping of conventional commit types to their corresponding PR section titles.
+ * @type {Object.<string, string>}
+ */
 const COMMIT_TYPES = {
   feat: "Features",
   fix: "Bug Fixes",
@@ -49,7 +65,8 @@ async function executeCommand(command) {
 
 /**
  * Gets the Git commit history from the current branch up to the last push.
- * @returns {Promise<string[]>} An array of commit messages.
+ * It compares the current branch's HEAD with its upstream branch on origin.
+ * @returns {Promise<string[]>} An array of commit messages. Returns an empty array if no commits are found or an error occurs.
  */
 async function getCommitHistory() {
   try {
@@ -72,9 +89,10 @@ async function getCommitHistory() {
 }
 
 /**
- * Categorizes commit messages based on conventional commit prefixes.
+ * Categorizes commit messages based on conventional commit prefixes (e.g., "feat:", "fix:").
+ * Messages without a recognized prefix are grouped under "Other Changes".
  * @param {string[]} commitMessages An array of raw commit messages.
- * @returns {Object.<string, string[]>} An object where keys are PR sections and values are arrays of commit messages.
+ * @returns {Object.<string, string[]>} An object where keys are PR sections (e.g., "Features", "Bug Fixes") and values are arrays of formatted commit messages.
  */
 function categorizeCommits(commitMessages) {
   const categorized = {};
@@ -108,8 +126,9 @@ function categorizeCommits(commitMessages) {
 }
 
 /**
- * Checks for PR templates in the .github folder and its PULL_REQUEST_TEMPLATE subdirectory.
- * @returns {Promise<string[]>} An array of template file paths.
+ * Checks for Pull Request templates in the `.github` folder and its `PULL_REQUEST_TEMPLATE` subdirectory.
+ * It looks for Markdown files (`.md`).
+ * @returns {Promise<string[]>} An array of template file paths. Returns an empty array if no templates are found.
  */
 async function getPRTemplates() {
   const githubPath = path.join(process.cwd(), ".github");
@@ -131,6 +150,7 @@ async function getPRTemplates() {
       }
     }
 
+    // If no templates found in subdirectory, check .github/
     if (templates.length === 0) {
       const githubDirExists = await fs
         .stat(githubPath)
@@ -148,14 +168,17 @@ async function getPRTemplates() {
         }
       }
     }
-  } catch (error) {}
+  } catch (error) {
+    // Ignore errors if directories don't exist
+  }
   return templates;
 }
 
 /**
- * Prompts the user to choose a PR template.
+ * Prompts the user to choose a PR template from a list of available templates.
+ * If only one template is available, it's automatically selected.
  * @param {string[]} templates An array of template file paths.
- * @returns {Promise<string|null>} The content of the chosen template, or null if none chosen.
+ * @returns {Promise<string|null>} The content of the chosen template, or `null` if no template is chosen or available.
  */
 async function chooseTemplate(templates) {
   if (templates.length === 0) {
@@ -194,6 +217,7 @@ async function chooseTemplate(templates) {
 
 /**
  * Generates the PR description based on categorized commits and an optional template.
+ * It formats the categorized commits into sections and prepends them to the template content if provided.
  * @param {Object.<string, string[]>} categorizedCommits Categorized commit messages.
  * @param {string|null} templateContent Optional content from a PR template.
  * @returns {string} The formatted PR description.
@@ -229,10 +253,12 @@ function generatePRDescription(categorizedCommits, templateContent = null) {
 
 /**
  * Generates content using Google Gemini based on commit messages and a template.
+ * This function constructs a prompt for the AI to generate a PR description by filling
+ * the provided template with information extracted from commit messages.
  * @param {string[]} commitMessages An array of raw commit messages.
  * @param {string} templateContent The content of the chosen PR template.
  * @param {string} templateLanguage The language of the PR template (e.g., "en", "pt").
- * @returns {Promise<string>} The AI-generated content for the PR description.
+ * @returns {Promise<string>} The AI-generated content for the PR description. Returns a fallback comment if AI generation fails.
  */
 async function generateAIContent(
   commitMessages,
@@ -275,6 +301,12 @@ Generated PR Description:
   }
 }
 
+/**
+ * Main function to run the CLI tool.
+ * It parses command-line arguments, fetches commit history, categorizes commits,
+ * prompts for a PR template and language (if available), generates the PR description
+ * (potentially with AI enhancement), and optionally copies it to the clipboard.
+ */
 async function main() {
   const argv = yargs(hideBin(process.argv))
     .option("copy", {
