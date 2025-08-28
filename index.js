@@ -277,6 +277,12 @@ async function main() {
       description:
         "Automatically copy the generated PR description to the clipboard",
     })
+    .option("github", {
+      alias: "g",
+      type: "boolean",
+      description:
+        "Open a GitHub PR creation page with the generated description",
+    })
     .help().argv;
 
   console.log("Generating PR description...");
@@ -317,6 +323,48 @@ async function main() {
       console.log("PR description copied to clipboard!");
     } catch (error) {
       console.error("Failed to copy to clipboard:", error.message);
+    }
+  }
+
+  if (argv.github) {
+    try {
+      const currentBranch = await executeCommand(
+        "git rev-parse --abbrev-ref HEAD"
+      );
+      const remoteUrl = await executeCommand(
+        "git config --get remote.origin.url"
+      );
+      const match = remoteUrl.match(/github\.com[/:](.+?)\/(.+?)(?:\.git)?$/);
+
+      if (!match) {
+        console.error(
+          "Could not parse GitHub repository owner and name from remote URL."
+        );
+        return;
+      }
+
+      const owner = match[1];
+      const repo = match[2];
+      const baseBranch = "main"; // Assuming 'main' as the base branch, can be made configurable
+      const prTitle = encodeURIComponent(
+        commitMessages[0].split(":")[1]?.trim() || "Pull Request"
+      ); // Use first commit message as title
+
+      const githubPrUrl = `https://github.com/${owner}/${repo}/compare/${baseBranch}...${currentBranch}?expand=1&title=${prTitle}&body=${encodeURIComponent(
+        prDescription
+      )}`;
+
+      console.log(`Opening GitHub PR creation page: ${githubPrUrl}`);
+      // In a real scenario, you would use a browser action here.
+      // For now, we'll just log the URL.
+      // await browser_action({ action: "launch", url: githubPrUrl });
+      // The user will need to manually open this URL for now.
+      console.log(
+        "Please open the following URL in your browser to create the PR:"
+      );
+      console.log(githubPrUrl);
+    } catch (error) {
+      console.error("Failed to open GitHub PR creation page:", error.message);
     }
   }
 }
