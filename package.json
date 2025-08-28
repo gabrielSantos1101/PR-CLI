@@ -1,25 +1,26 @@
 {
-  "name": "pr-description-generator",
+  "name": "pr-cli",
   "version": "1.0.0",
-  "description": "A CLI tool to generate Git PR descriptions from commit history.",
+  "description": "A simple CLI tool to generate a Git Pull Request (PR) description by analyzing your local Git commit history.",
   "main": "index.js",
-  "bin": {
-    "generate-pr-desc": "./index.js"
-  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [
-    "git",
-    "cli",
-    "pr",
-    "pull-request"
-  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gabrielSantos1101/PR-CLI.git"
+  },
+  "keywords": [],
   "author": "",
   "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/gabrielSantos1101/PR-CLI/issues"
+  },
+  "homepage": "https://github.com/gabrielSantos1101/PR-CLI#readme",
   "dependencies": {
     "clipboardy": "^4.0.0",
-    "commander": "^14.0.0",
-    "inquirer": "^12.9.4"
+    "inquirer": "^12.9.4",
+    "yargs": "^18.0.0"
   }
 }

@@ -1,15 +1,19 @@
-const { program } = require("commander");
+#!/usr/bin/env node
+
 const { exec } = require("child_process");
 const fs = require("fs").promises;
 const path = require("path");
+const yargs = require("yargs/yargs");
+const { hideBin } = require("yargs/helpers");
 const inquirer = require("inquirer");
 const clipboardy = require("clipboardy");
 
+// Define commit type mappings for PR sections
 const COMMIT_TYPES = {
   feat: "Features",
   fix: "Bug Fixes",
-  chore: "Chores",
   refactor: "Refactors",
+  chore: "Chores",
   docs: "Documentation",
   style: "Styling",
   test: "Tests",
@@ -22,15 +26,17 @@ const COMMIT_TYPES = {
 /**
  * Executes a shell command and returns its output.
  * @param {string} command The command to execute.
- * @returns {Promise<string>} The stdout of the command.
+ * @returns {Promise<string>} The command's stdout.
  */
 async function executeCommand(command) {
   return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => {
       if (error) {
-        console.error(`Error executing command: ${command}`);
-        console.error(stderr);
+        console.error(`exec error: ${error}`);
         return reject(error);
+      }
+      if (stderr) {
+        console.error(`stderr: ${stderr}`);
       }
       resolve(stdout.trim());
     });
@@ -38,205 +44,234 @@ async function executeCommand(command) {
 }
 
 /**
- * Retrieves Git commit messages from the current branch up to the last push.
- * @returns {Promise<Array<string>>} An array of commit messages.
+ * Gets the Git commit history from the current branch up to the last push.
+ * @returns {Promise<string[]>} An array of commit messages.
  */
 async function getCommitHistory() {
   try {
+    // Get the current branch name
     const currentBranch = await executeCommand(
       "git rev-parse --abbrev-ref HEAD"
     );
-    const remoteBranch = await executeCommand(
-      `git for-each-ref --format='%(upstream:short)' refs/heads/${currentBranch}`
+    // Get the last pushed commit hash for the current branch
+    const lastPushCommit = await executeCommand(
+      `git merge-base ${currentBranch} origin/${currentBranch}`
     );
-
-    let command;
-    if (remoteBranch) {
-      command = `git log ${remoteBranch}..HEAD --pretty=format:%s`;
-    } else {
-      console.warn(
-        "No remote tracking branch found. Analyzing recent commits on the current branch."
-      );
-      command = "git log -50 --pretty=format:%s"; // Adjust as needed
-    }
-
-    const commitLog = await executeCommand(command);
-    return commitLog.split("\n").filter(Boolean); // Filter out empty lines
+    // Get commit messages since the last push
+    const commitLogs = await executeCommand(
+      `git log ${lastPushCommit}..HEAD --pretty=format:"%s"`
+    );
+    return commitLogs.split("\n").filter(Boolean);
   } catch (error) {
     console.error(
-      "Failed to retrieve Git commit history. Ensure you are in a Git repository."
+      "Failed to get Git commit history. Ensure you are in a Git repository and have pushed to origin."
     );
-    throw error;
+    return [];
   }
 }
 
 /**
  * Categorizes commit messages based on conventional commit prefixes.
- * @param {Array<string>} commitMessages An array of raw commit messages.
- * @returns {Object<string, Array<string>>} An object where keys are categories and values are arrays of commit messages.
+ * @param {string[]} commitMessages An array of raw commit messages.
+ * @returns {Object.<string, string[]>} An object where keys are PR sections and values are arrays of commit messages.
  */
 function categorizeCommits(commitMessages) {
   const categorized = {};
-  for (const type in COMMIT_TYPES) {
-    categorized[COMMIT_TYPES[type]] = [];
-  }
 
-  commitMessages.forEach((message) => {
+  for (const message of commitMessages) {
     const match = message.match(/^(\w+)(\(.+\))?: (.+)$/);
     if (match) {
       const type = match[1];
       const description = match[3];
-      if (COMMIT_TYPES[type]) {
-        categorized[COMMIT_TYPES[type]].push(description);
-      } else {
-        if (!categorized["Other"]) {
-          categorized["Other"] = [];
+      const section = COMMIT_TYPES[type];
+
+      if (section) {
+        if (!categorized[section]) {
+          categorized[section] = [];
         }
-        categorized["Other"].push(message);
+        categorized[section].push(`- ${description}`);
+      } else {
+        // If no specific section, add to a general "Other Changes" or similar
+        if (!categorized["Other Changes"]) {
+          categorized["Other Changes"] = [];
+        }
+        categorized["Other Changes"].push(`- ${message}`);
       }
     } else {
-      if (!categorized["Other"]) {
-        categorized["Other"] = [];
+      // Commits that don't follow conventional format
+      if (!categorized["Other Changes"]) {
+        categorized["Other Changes"] = [];
       }
-      categorized["Other"].push(message);
+      categorized["Other Changes"].push(`- ${message}`);
     }
-  });
+  }
   return categorized;
 }
 
 /**
- * Generates the PR description based on categorized commits.
- * @param {Object<string, Array<string>>} categorizedCommits Categorized commit messages.
- * @returns {string} The formatted PR description.
+ * Checks for PR templates in the .github folder and its PULL_REQUEST_TEMPLATE subdirectory.
+ * @returns {Promise<string[]>} An array of template file paths.
  */
-function generatePrDescription(categorizedCommits) {
-  let description = "";
-  for (const category in categorizedCommits) {
-    const commits = categorizedCommits[category];
-    if (commits.length > 0) {
-      description += `### ${category}\n\n`;
-      commits.forEach((commit) => {
-        description += `- ${commit}\n`;
-      });
-      description += "\n";
-    }
-  }
-  return description.trim();
-}
-
-/**
- * Checks for and lists PR templates in the .github folder.
- * @returns {Promise<Array<{name: string, value: string}>>} An array of template choices.
- */
-async function getPrTemplates() {
+async function getPRTemplates() {
   const githubPath = path.join(process.cwd(), ".github");
-  const templateDir = path.join(githubPath, "PULL_REQUEST_TEMPLATE");
+  const templateDirPath = path.join(githubPath, "PULL_REQUEST_TEMPLATE");
   const templates = [];
 
   try {
-    const templateFiles = await fs.readdir(templateDir);
-    for (const file of templateFiles) {
-      if (file.endsWith(".md")) {
-        templates.push({
-          name: file.replace(".md", ""),
-          value: path.join(templateDir, file),
-        });
+    // Check .github/PULL_REQUEST_TEMPLATE/
+    const templateDirExists = await fs
+      .stat(templateDirPath)
+      .then((stat) => stat.isDirectory())
+      .catch(() => false);
+    if (templateDirExists) {
+      const files = await fs.readdir(templateDirPath);
+      for (const file of files) {
+        if (file.endsWith(".md")) {
+          templates.push(path.join(templateDirPath, file));
+        }
+      }
+    }
+
+    // Check .github/ directly if no subdirectory or if subdirectory is empty
+    if (templates.length === 0) {
+      const githubDirExists = await fs
+        .stat(githubPath)
+        .then((stat) => stat.isDirectory())
+        .catch(() => false);
+      if (githubDirExists) {
+        const files = await fs.readdir(githubPath);
+        for (const file of files) {
+          if (
+            file.endsWith(".md") &&
+            file.toLowerCase().includes("pull_request_template")
+          ) {
+            templates.push(path.join(githubPath, file));
+          }
+        }
       }
     }
   } catch (error) {
-    try {
-      const githubFiles = await fs.readdir(githubPath);
-      for (const file of githubFiles) {
-        if (
-          file.endsWith(".md") &&
-          file.toLowerCase().includes("pull_request_template")
-        ) {
-          templates.push({
-            name: file.replace(".md", ""),
-            value: path.join(githubPath, file),
-          });
-        }
-      }
-    } catch (err) {}
+    // console.warn(`Could not read .github folder for templates: ${error.message}`);
+    // Ignore error if .github folder doesn't exist
   }
   return templates;
 }
 
-async function run() {
-  program
-    .option("-c, --copy", "Copy the generated PR description to clipboard")
-    .parse(process.argv);
+/**
+ * Prompts the user to choose a PR template.
+ * @param {string[]} templates An array of template file paths.
+ * @returns {Promise<string|null>} The content of the chosen template, or null if none chosen.
+ */
+async function chooseTemplate(templates) {
+  if (templates.length === 0) {
+    return null;
+  }
 
-  const options = program.opts();
+  if (templates.length === 1) {
+    console.log(
+      `Automatically selecting the only available template: ${path.basename(
+        templates[0]
+      )}`
+    );
+    return fs.readFile(templates[0], "utf-8");
+  }
 
-  try {
-    console.log("Analyzing Git commit history...");
-    const commitMessages = await getCommitHistory();
-    const categorizedCommits = categorizeCommits(commitMessages);
-    let prDescription = generatePrDescription(categorizedCommits);
+  const choices = templates.map((tplPath) => ({
+    name: path.basename(tplPath),
+    value: tplPath,
+  }));
 
-    console.log("Checking for PR templates...");
-    const templates = await getPrTemplates();
+  const { selectedTemplatePath } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "selectedTemplatePath",
+      message: "Select a PR template:",
+      choices: [{ name: "No template", value: null }, ...choices],
+      default: null,
+    },
+  ]);
 
-    let briefDescription = "";
-    const descriptionAnswer = await inquirer.prompt([
-      {
-        type: "input",
-        name: "brief",
-        message:
-          "Please provide a brief description of what you did in this PR:",
-      },
-    ]);
-    briefDescription = descriptionAnswer.brief.trim();
+  if (selectedTemplatePath) {
+    return fs.readFile(selectedTemplatePath, "utf-8");
+  }
+  return null;
+}
 
-    if (briefDescription) {
-      prDescription =
-        `## Brief Description\n\n${briefDescription}\n\n` + prDescription;
+/**
+ * Generates the PR description based on categorized commits and an optional template.
+ * @param {Object.<string, string[]>} categorizedCommits Categorized commit messages.
+ * @param {string|null} templateContent Optional content from a PR template.
+ * @returns {string} The formatted PR description.
+ */
+function generatePRDescription(categorizedCommits, templateContent = null) {
+  let prBody = "";
+
+  if (templateContent) {
+    prBody += templateContent + "\n\n---\n\n";
+  }
+
+  for (const section in COMMIT_TYPES) {
+    const sectionTitle = COMMIT_TYPES[section];
+    if (
+      categorizedCommits[sectionTitle] &&
+      categorizedCommits[sectionTitle].length > 0
+    ) {
+      prBody += `### ${sectionTitle}\n\n`;
+      prBody += categorizedCommits[sectionTitle].join("\n") + "\n\n";
     }
+  }
 
-    if (templates.length > 0) {
-      let selectedTemplatePath = null;
+  if (
+    categorizedCommits["Other Changes"] &&
+    categorizedCommits["Other Changes"].length > 0
+  ) {
+    prBody += `### Other Changes\n\n`;
+    prBody += categorizedCommits["Other Changes"].join("\n") + "\n\n";
+  }
 
-      if (templates.length === 1) {
-        console.log(
-          `Found one template: "${templates[0].name}". Using it by default.`
-        );
-        selectedTemplatePath = templates[0].value;
-      } else {
-        const answers = await inquirer.prompt([
-          {
-            type: "list",
-            name: "template",
-            message: 'Select a PR template (or choose "None" to skip):',
-            choices: [{ name: "None", value: null }, ...templates],
-          },
-        ]);
-        selectedTemplatePath = answers.template;
-      }
+  return prBody.trim();
+}
 
-      if (selectedTemplatePath) {
-        console.log(`Reading template from ${selectedTemplatePath}...`);
-        const templateContent = await fs.readFile(selectedTemplatePath, "utf8");
-        prDescription = templateContent + "\n\n" + prDescription;
-      }
-    } else {
-      console.log(
-        "No PR templates found. Generating description based on commits only."
-      );
-    }
+async function main() {
+  const argv = yargs(hideBin(process.argv))
+    .option("copy", {
+      alias: "c",
+      type: "boolean",
+      description:
+        "Automatically copy the generated PR description to the clipboard",
+    })
+    .help().argv;
 
-    console.log("\n--- Generated PR Description ---");
-    console.log(prDescription);
-    console.log("------------------------------\n");
+  console.log("Generating PR description...");
 
-    if (options.copy) {
+  const commitMessages = await getCommitHistory();
+  if (commitMessages.length === 0) {
+    console.log("No new commits found since the last push to origin. Exiting.");
+    return;
+  }
+
+  const categorized = categorizeCommits(commitMessages);
+
+  const templates = await getPRTemplates();
+  let templateContent = null;
+  if (templates.length > 0) {
+    templateContent = await chooseTemplate(templates);
+  }
+
+  const prDescription = generatePRDescription(categorized, templateContent);
+
+  console.log("\n--- Generated PR Description ---\n");
+  console.log(prDescription);
+  console.log("\n--------------------------------\n");
+
+  if (argv.copy) {
+    try {
       await clipboardy.write(prDescription);
       console.log("PR description copied to clipboard!");
+    } catch (error) {
+      console.error("Failed to copy to clipboard:", error.message);
     }
-  } catch (error) {
-    console.error("An error occurred:", error.message);
-    process.exit(1);
   }
 }
 
-run();
+main().catch(console.error);
