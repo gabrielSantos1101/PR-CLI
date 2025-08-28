@@ -1,5 +1,5 @@
 {
-  "name": "pr-cli",
+  "name": "pr-cli-generator",
   "version": "1.1.0",
   "description": "A simple CLI tool to generate a Git Pull Request (PR) description by analyzing your local Git commit history.",
   "main": "index.js",

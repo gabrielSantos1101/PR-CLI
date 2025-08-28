@@ -136,7 +136,6 @@ async function getPRTemplates() {
   const templates = [];
 
   try {
-    // Check .github/PULL_REQUEST_TEMPLATE/
     const templateDirExists = await fs
       .stat(templateDirPath)
       .then((stat) => stat.isDirectory())
@@ -150,7 +149,6 @@ async function getPRTemplates() {
       }
     }
 
-    // If no templates found in subdirectory, check .github/
     if (templates.length === 0) {
       const githubDirExists = await fs
         .stat(githubPath)
@@ -168,9 +166,7 @@ async function getPRTemplates() {
         }
       }
     }
-  } catch (error) {
-    // Ignore errors if directories don't exist
-  }
+  } catch (error) {}
   return templates;
 }
 
@@ -252,18 +248,73 @@ function generatePRDescription(categorizedCommits, templateContent = null) {
 }
 
 /**
+ * Parses a GitHub repository URL to extract the owner and repository name.
+ * @param {string} repoUrl The full GitHub repository URL (e.g., "https://github.com/owner/repo.git").
+ * @returns {{owner: string, repo: string}|null} An object containing owner and repo, or null if parsing fails.
+ */
+function parseGitHubRepoUrl(repoUrl) {
+  const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/.]+)(\.git)?$/i);
+  if (match && match[1] && match[2]) {
+    return { owner: match[1], repo: match[2] };
+  }
+  return null;
+}
+
+/**
+ * Opens a new GitHub Pull Request page in the browser with the generated description pre-filled.
+ * @param {string} prDescription The generated PR description.
+ * @param {string} repoUrl The GitHub repository URL.
+ * @param {string} currentBranch The current branch name.
+ * @param {string} baseBranch The base branch name for the PR.
+ */
+async function openGitHubPR(prDescription, repoUrl, currentBranch, baseBranch) {
+  const repoInfo = parseGitHubRepoUrl(repoUrl);
+  if (!repoInfo) {
+    console.error("Could not parse GitHub repository URL:", repoUrl);
+    return;
+  }
+
+  const { owner, repo } = repoInfo;
+  const encodedDescription = encodeURIComponent(prDescription);
+  const prTitle = encodeURIComponent("feat: Automated PR description"); // Default title, can be improved later
+
+  const githubPRUrl = `https://github.com/${owner}/${repo}/compare/${baseBranch}...${currentBranch}?expand=1&title=${prTitle}&body=${encodedDescription}`;
+
+  console.log(`\nGenerated GitHub PR URL: ${githubPRUrl}`);
+  try {
+    await clipboardy.write(githubPRUrl);
+    console.log(
+      "GitHub PR URL copied to clipboard! Please paste it into your browser."
+    );
+  } catch (error) {
+    console.error("Failed to copy GitHub PR URL to clipboard:", error.message);
+  }
+
+  try {
+    await clipboardy.write(prDescription);
+    console.log(
+      "PR description copied to clipboard! Please paste it into the description field on the GitHub page after opening the URL."
+    );
+  } catch (error) {
+    console.error("Failed to copy PR description to clipboard:", error.message);
+  }
+}
+
+/**
  * Generates content using Google Gemini based on commit messages and a template.
  * This function constructs a prompt for the AI to generate a PR description by filling
  * the provided template with information extracted from commit messages.
  * @param {string[]} commitMessages An array of raw commit messages.
  * @param {string} templateContent The content of the chosen PR template.
  * @param {string} templateLanguage The language of the PR template (e.g., "en", "pt").
+ * @param {string} devDescription The developer's brief description of their work.
  * @returns {Promise<string>} The AI-generated content for the PR description. Returns a fallback comment if AI generation fails.
  */
 async function generateAIContent(
   commitMessages,
   templateContent,
-  templateLanguage
+  templateLanguage,
+  devDescription
 ) {
   if (!GEMINI_API_KEY) {
     console.warn("GEMINI_API_KEY is not set. Skipping AI content generation.");
@@ -284,6 +335,9 @@ Here's the process:
 
 Commit Messages:
 ${commitMessages.join("\n")}
+
+Developer's Description of Work:
+${devDescription || "No additional description provided."}
 
 PR Template (Language: ${templateLanguage}):
 ${templateContent}
@@ -315,6 +369,11 @@ async function main() {
       description:
         "Automatically copy the generated PR description to the clipboard",
     })
+    .option("github", {
+      alias: "g",
+      type: "boolean",
+      description: "Open GitHub PR page with pre-filled description",
+    })
     .help().argv;
 
   console.log("Generating PR description...");
@@ -324,6 +383,15 @@ async function main() {
     console.log("No new commits found since the last push to origin. Exiting.");
     return;
   }
+
+  const { devDescription } = await inquirer.default.prompt([
+    {
+      type: "input",
+      name: "devDescription",
+      message: "Please provide a brief description of what you did:",
+      default: "",
+    },
+  ]);
 
   const categorized = categorizeCommits(commitMessages);
 
@@ -363,7 +431,8 @@ async function main() {
     const aiGeneratedContent = await generateAIContent(
       commitMessages,
       templateContent,
-      templateLanguage
+      templateLanguage,
+      devDescription
     );
     prDescription = aiGeneratedContent;
   } else {
@@ -381,6 +450,15 @@ async function main() {
     } catch (error) {
       console.error("Failed to copy to clipboard:", error.message);
     }
+  }
+
+  if (argv.github) {
+    const repoUrl = await executeCommand("git config --get remote.origin.url");
+    const currentBranch = await executeCommand(
+      "git rev-parse --abbrev-ref HEAD"
+    );
+    const baseBranch = "main";
+    await openGitHubPR(prDescription, repoUrl, currentBranch, baseBranch);
   }
 }
 
