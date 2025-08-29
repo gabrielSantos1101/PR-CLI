@@ -45,10 +45,13 @@ pr-cli
   pr-cli --description "This PR adds a new feature for user authentication."
   ```
 
-- `--github`: Generates a GitHub link with the PR template pre-filled.
-
+- `--github` (or `-g`): Opens a GitHub PR page in your browser with the PR title and description pre-filled in the URL. The full PR description is also copied to your clipboard, and you'll be instructed to paste it into the description field on the GitHub page.
   ```bash
   pr-cli --github
+  ```
+- `--gh`: Creates a GitHub PR directly using the GitHub CLI. This option also includes branch management features (prompting to create/publish a new branch if on `main`/`master` or if the branch is not published).
+  ```bash
+  pr-cli --gh
   ```
 
 ### Setup Google Gemini API Key
@@ -73,9 +76,13 @@ Alternatively, you can create a `.env` file in the project root with `GEMINI_API
 
 1.  **Commit your changes:** Ensure your commit messages follow a consistent convention (e.g., Conventional Commits).
 2.  **Run PR-CLI:** Execute `node index.js` in your repository.
-3.  **Select a template (if available):** If you have PR templates in `.github/PULL_REQUEST_TEMPLATE/` or `.github/`, you will be prompted to choose one.
-4.  **Select template language (if a template is chosen):** You will be prompted to select the language of your chosen PR template.
-5.  **Review and copy:** The generated PR description will be displayed in your terminal. If you used the `--copy` flag, it will also be in your clipboard.
+3.  **Handle No Local Commits:** If no local commits are found, you will be prompted to specify how many remote commits to read for history.
+4.  **Select a template (if available):** If you have PR templates in `.github/PULL_REQUEST_TEMPLATE/` or `.github/`, you will be prompted to choose one.
+5.  **Select template language (if a template is chosen):** You will be prompted to select the language of your chosen PR template.
+6.  **Branch Management (for `--gh` option):** If using the `--gh` option and on `main`/`master` or an unpublished branch, you will be prompted to create and/or publish a new branch.
+7.  **Review and copy / Create PR:**
+    - If using `--github`, the generated PR description will be displayed, and the GitHub PR URL and full description will be copied to your clipboard.
+    - If using `--gh`, the PR will be created directly via GitHub CLI.
 
 ## PR Template Example
 
