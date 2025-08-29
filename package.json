@@ -2,12 +2,13 @@
   "name": "pr-cli-generator",
   "version": "1.3.0",
   "description": "A simple CLI tool to generate a Git Pull Request (PR) description by analyzing your local Git commit history.",
-  "main": "index.js",
+  "main": "dist/index.js",
   "bin": {
-    "pr-cli": "./index.js"
+    "pr-cli": "./dist/index.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild index.js --bundle --platform=node --format=esm --outfile=dist/index.js --minify --sourcemap --external:node:* --external:yargs --external:inquirer --external:clipboardy --external:@google/generative-ai"
   },
   "repository": {
     "type": "git",
@@ -16,7 +17,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/gabrielSantos1101/PR-CLI/issues"
   },
@@ -26,5 +27,8 @@
     "clipboardy": "^4.0.0",
     "inquirer": "^12.9.4",
     "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
   }
 }

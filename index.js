@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-const { exec } = require("child_process");
-const fs = require("fs").promises;
-const path = require("path");
-const yargs = require("yargs/yargs");
-const { hideBin } = require("yargs/helpers");
-const inquirer = require("inquirer");
-const clipboardy = require("clipboardy");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+import { exec } from "child_process";
+import fs from "fs/promises";
+import path from "path";
+import yargs from "yargs/yargs";
+import { hideBin } from "yargs/helpers";
+import inquirer from "inquirer";
+import clipboardy from "clipboardy";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 /**
  * Google Gemini API Key.
@@ -63,11 +63,6 @@ async function executeCommand(command) {
   });
 }
 
-/**
- * Gets the Git commit history from the current branch up to the last push.
- * It compares the current branch's HEAD with its upstream branch on origin.
- * @returns {Promise<string[]>} An array of commit messages. Returns an empty array if no commits are found or an error occurs.
- */
 /**
  * Gets the Git commit history.
  * If `count` is provided, it fetches the last `count` commits from HEAD.
@@ -209,7 +204,7 @@ async function chooseTemplate(templates) {
     value: tplPath,
   }));
 
-  const { selectedTemplatePath } = await inquirer.default.prompt([
+  const { selectedTemplatePath } = await inquirer.prompt([
     {
       type: "list",
       name: "selectedTemplatePath",
@@ -281,21 +276,6 @@ function parseGitHubRepoUrl(repoUrl) {
  * @param {string} currentBranch The current branch name.
  * @param {string} baseBranch The base branch name for the PR.
  */
-/**
- * Opens a new GitHub Pull Request page in the browser with the generated description pre-filled.
- * Or creates a PR using GitHub CLI if available.
- * @param {string} prDescription The generated PR description.
- * @param {string} repoUrl The GitHub repository URL.
- * @param {string} currentBranch The current branch name.
- * @param {string} baseBranch The base branch name for the PR.
- */
-/**
- * Opens a new GitHub Pull Request page in the browser with the generated description pre-filled.
- * @param {string} prDescription The generated PR description.
- * @param {string} repoUrl The GitHub repository URL.
- * @param {string} currentBranch The current branch name.
- * @param {string} baseBranch The base branch name for the PR.
- */
 async function openGitHubPRInBrowser(
   prDescription,
   repoUrl,
@@ -317,7 +297,7 @@ async function openGitHubPRInBrowser(
 
   console.log(`\nGenerated GitHub PR URL: ${githubPRUrl}`);
   try {
-    await clipboardy.default.write(githubPRUrl);
+    await clipboardy.write(githubPRUrl);
     console.log(
       "GitHub PR URL copied to clipboard! Please paste it into your browser."
     );
@@ -329,7 +309,7 @@ async function openGitHubPRInBrowser(
   }
 
   try {
-    await clipboardy.default.write(prDescription);
+    await clipboardy.write(prDescription);
     console.log(
       "Full PR description copied to clipboard! Paste it into the description field on the GitHub page after opening the URL."
     );
@@ -373,7 +353,7 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
       );
     } catch (error) {
       console.log(`Branch "${currentBranch}" is not published to remote.`);
-      const { publishBranch } = await inquirer.default.prompt([
+      const { publishBranch } = await inquirer.prompt([
         {
           type: "confirm",
           name: "publishBranch",
@@ -504,7 +484,7 @@ async function main() {
 
   if (commitMessages.length === 0) {
     console.log("No new local commits found since the last push to origin.");
-    const { commitCount } = await inquirer.default.prompt([
+    const { commitCount } = await inquirer.prompt([
       {
         type: "number",
         name: "commitCount",
@@ -527,7 +507,7 @@ async function main() {
     }
   }
 
-  const { devDescription } = await inquirer.default.prompt([
+  const { devDescription } = await inquirer.prompt([
     {
       type: "input",
       name: "devDescription",
@@ -547,7 +527,7 @@ async function main() {
   let templateLanguage = "en";
 
   if (templateContent) {
-    const { selectedLanguage } = await inquirer.default.prompt([
+    const { selectedLanguage } = await inquirer.prompt([
       {
         type: "list",
         name: "selectedLanguage",
@@ -612,7 +592,7 @@ async function main() {
     const baseBranch = "main";
 
     if (currentBranch === "main" || currentBranch === "master") {
-      const { createNewBranch } = await inquirer.default.prompt([
+      const { createNewBranch } = await inquirer.prompt([
         {
           type: "confirm",
           name: "createNewBranch",
@@ -625,7 +605,7 @@ async function main() {
         const defaultNewBranchName = `feat/pr-cli-${Date.now()
           .toString()
           .substring(8)}`;
-        const { newBranchName } = await inquirer.default.prompt([
+        const { newBranchName } = await inquirer.prompt([
           {
             type: "input",
             name: "newBranchName",
