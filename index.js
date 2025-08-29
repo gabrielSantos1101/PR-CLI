@@ -281,6 +281,14 @@ function parseGitHubRepoUrl(repoUrl) {
  * @param {string} currentBranch The current branch name.
  * @param {string} baseBranch The base branch name for the PR.
  */
+/**
+ * Opens a new GitHub Pull Request page in the browser with the generated description pre-filled.
+ * Or creates a PR using GitHub CLI if available.
+ * @param {string} prDescription The generated PR description.
+ * @param {string} repoUrl The GitHub repository URL.
+ * @param {string} currentBranch The current branch name.
+ * @param {string} baseBranch The base branch name for the PR.
+ */
 async function openGitHubPR(prDescription, repoUrl, currentBranch, baseBranch) {
   const repoInfo = parseGitHubRepoUrl(repoUrl);
   if (!repoInfo) {
@@ -289,28 +297,70 @@ async function openGitHubPR(prDescription, repoUrl, currentBranch, baseBranch) {
   }
 
   const { owner, repo } = repoInfo;
-  const encodedDescription = encodeURIComponent(prDescription);
-  const prTitle = encodeURIComponent("feat: Automated PR description"); // Default title, can be improved later
+  const prTitle = "feat: Automated PR description";
 
-  const githubPRUrl = `https://github.com/${owner}/${repo}/compare/${baseBranch}...${currentBranch}?expand=1&title=${prTitle}&body=${encodedDescription}`;
-
-  console.log(`\nGenerated GitHub PR URL: ${githubPRUrl}`);
   try {
-    await clipboardy.write(githubPRUrl);
-    console.log(
-      "GitHub PR URL copied to clipboard! Please paste it into your browser."
-    );
+    await executeCommand("gh --version");
+    console.log("GitHub CLI detected.");
+
+    try {
+      const existingPr = await executeCommand(
+        `gh pr view ${currentBranch} --json url --jq .url`
+      );
+      if (existingPr) {
+        console.log(
+          `A pull request for branch "${currentBranch}" already exists: ${existingPr}`
+        );
+        console.log("Exiting without creating a new PR.");
+        return;
+      }
+    } catch (error) {}
+
+    console.log("Creating PR using gh pr create...");
+
+    const tempFilePath = path.join(process.cwd(), "PR_BODY.md");
+    await fs.writeFile(tempFilePath, prDescription);
+
+    const ghCommand = `gh pr create --title "${prTitle}" --body-file "${tempFilePath}" --base "${baseBranch}" --head "${currentBranch}"`;
+    const ghOutput = await executeCommand(ghCommand);
+    console.log("GitHub CLI output:\n", ghOutput);
+
+    await fs.unlink(tempFilePath);
+
+    console.log("Pull Request created successfully via GitHub CLI.");
   } catch (error) {
-    console.error("Failed to copy GitHub PR URL to clipboard:", error.message);
+    console.warn("Failed to create PR using GitHub CLI:", error.message);
+    console.log("Falling back to opening GitHub PR URL in browser.");
+
+    const encodedDescription = encodeURIComponent(prDescription);
+    const encodedPrTitle = encodeURIComponent(prTitle);
+
+    const githubPRUrl = `https://github.com/${owner}/${repo}/compare/${baseBranch}...${currentBranch}?expand=1&title=${encodedPrTitle}&body=${encodedDescription}`;
+
+    console.log(`\nGenerated GitHub PR URL: ${githubPRUrl}`);
+    try {
+      await clipboardy.default.write(githubPRUrl);
+      console.log(
+        "GitHub PR URL copied to clipboard! Please paste it into your browser."
+      );
+    } catch (clipboardError) {
+      console.error(
+        "Failed to copy GitHub PR URL to clipboard:",
+        clipboardError.message
+      );
+    }
   }
 
   try {
-    await clipboardy.write(prDescription);
+    await clipboardy.default.write(prDescription);
     console.log(
-      "PR description copied to clipboard! Please paste it into the description field on the GitHub page after opening the URL."
+      "Full PR description copied to clipboard! Paste it into the description field on the GitHub page if needed."
     );
-  } catch (error) {
-    console.error("Failed to copy PR description to clipboard:", error.message);
+  } catch (clipboardError) {
+    console.error(
+      "Failed to copy PR description to clipboard:",
+      clipboardError.message
+    );
   }
 }
 
