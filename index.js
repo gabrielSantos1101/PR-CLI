@@ -309,7 +309,7 @@ async function openGitHubPRInBrowser(
   }
 
   const { owner, repo } = repoInfo;
-  const prTitle = "feat: Automated PR description"; // Default title, can be improved later
+  const prTitle = "feat: Automated PR description";
   const encodedDescription = encodeURIComponent(prDescription);
   const encodedPrTitle = encodeURIComponent(prTitle);
 
@@ -348,13 +348,12 @@ async function openGitHubPRInBrowser(
  * @param {string} baseBranch The base branch name for the PR.
  */
 async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
-  const prTitle = "feat: Automated PR description"; // Default title, can be improved later
+  const prTitle = "feat: Automated PR description";
 
   try {
     await executeCommand("gh --version");
     console.log("GitHub CLI detected.");
 
-    // Check for existing PR
     try {
       const existingPr = await executeCommand(
         `gh pr view ${currentBranch} --json url --jq .url`
@@ -366,14 +365,41 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
         console.log("Exiting without creating a new PR.");
         return;
       }
+    } catch (error) {}
+
+    try {
+      await executeCommand(
+        `git rev-parse --abbrev-ref --symbolic-full-name @{u}`
+      );
     } catch (error) {
-      // No existing PR, or gh pr view failed for another reason (e.g., not logged in)
-      // Continue to create PR
+      console.log(`Branch "${currentBranch}" is not published to remote.`);
+      const { publishBranch } = await inquirer.default.prompt([
+        {
+          type: "confirm",
+          name: "publishBranch",
+          message: `Do you want to publish branch "${currentBranch}" to origin?`,
+          default: true,
+        },
+      ]);
+
+      if (publishBranch) {
+        try {
+          await executeCommand(
+            `git push --set-upstream origin ${currentBranch}`
+          );
+          console.log(`Branch "${currentBranch}" published successfully.`);
+        } catch (publishError) {
+          console.error(`Failed to publish branch: ${publishError.message}`);
+          return;
+        }
+      } else {
+        console.log("Cannot create PR without publishing the branch. Exiting.");
+        return;
+      }
     }
 
     console.log("Creating PR using gh pr create...");
 
-    // Create a temporary file for the PR body
     const tempFilePath = path.join(process.cwd(), "PR_BODY.md");
     await fs.writeFile(tempFilePath, prDescription);
 
@@ -381,7 +407,6 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
     const ghOutput = await executeCommand(ghCommand);
     console.log("GitHub CLI output:\n", ghOutput);
 
-    // Clean up the temporary file
     await fs.unlink(tempFilePath);
 
     console.log("Pull Request created successfully via GitHub CLI.");
@@ -614,12 +639,12 @@ async function main() {
         try {
           await executeCommand(`git checkout -b ${newBranchName}`);
           console.log(`Switched to new branch: ${newBranchName}`);
-          currentBranch = newBranchName; // Update currentBranch to the new one
+          currentBranch = newBranchName;
         } catch (error) {
           console.error(
             `Failed to create and switch to new branch: ${error.message}`
           );
-          return; // Exit if branch creation fails
+          return;
         }
       } else {
         console.log("Proceeding with PR creation on the current branch.");
