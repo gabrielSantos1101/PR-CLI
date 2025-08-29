@@ -68,18 +68,32 @@ async function executeCommand(command) {
  * It compares the current branch's HEAD with its upstream branch on origin.
  * @returns {Promise<string[]>} An array of commit messages. Returns an empty array if no commits are found or an error occurs.
  */
-async function getCommitHistory() {
+/**
+ * Gets the Git commit history.
+ * If `count` is provided, it fetches the last `count` commits from HEAD.
+ * Otherwise, it fetches commits from the current branch's HEAD up to the last push to its upstream.
+ * @param {number} [count] The number of commits to retrieve from HEAD.
+ * @returns {Promise<string[]>} An array of commit messages. Returns an empty array if no commits are found or an error occurs.
+ */
+async function getCommitHistory(count) {
   try {
-    const currentBranch = await executeCommand(
-      "git rev-parse --abbrev-ref HEAD"
-    );
-    const lastPushCommit = await executeCommand(
-      `git merge-base ${currentBranch} origin/${currentBranch}`
-    );
-    const commitLogs = await executeCommand(
-      `git log ${lastPushCommit}..HEAD --pretty=format:"%s"`
-    );
-    return commitLogs.split("\n").filter(Boolean);
+    if (count) {
+      const commitLogs = await executeCommand(
+        `git log -n ${count} --pretty=format:"%s"`
+      );
+      return commitLogs.split("\n").filter(Boolean);
+    } else {
+      const currentBranch = await executeCommand(
+        "git rev-parse --abbrev-ref HEAD"
+      );
+      const lastPushCommit = await executeCommand(
+        `git merge-base ${currentBranch} origin/${currentBranch}`
+      );
+      const commitLogs = await executeCommand(
+        `git log ${lastPushCommit}..HEAD --pretty=format:"%s"`
+      );
+      return commitLogs.split("\n").filter(Boolean);
+    }
   } catch (error) {
     console.error(
       "Failed to get Git commit history. Ensure you are in a Git repository and have pushed to origin."
@@ -378,10 +392,31 @@ async function main() {
 
   console.log("Generating PR description...");
 
-  const commitMessages = await getCommitHistory();
+  let commitMessages = await getCommitHistory();
+
   if (commitMessages.length === 0) {
-    console.log("No new commits found since the last push to origin. Exiting.");
-    return;
+    console.log("No new local commits found since the last push to origin.");
+    const { commitCount } = await inquirer.default.prompt([
+      {
+        type: "number",
+        name: "commitCount",
+        message:
+          "How many remote commits should be read for history? (Enter 0 to exit)",
+        default: 5,
+        validate: (input) =>
+          input >= 0 || "Please enter a non-negative number.",
+      },
+    ]);
+
+    if (commitCount === 0) {
+      console.log("Exiting without generating PR description.");
+      return;
+    }
+    commitMessages = await getCommitHistory(commitCount);
+    if (commitMessages.length === 0) {
+      console.log("No commits found even from remote. Exiting.");
+      return;
+    }
   }
 
   const { devDescription } = await inquirer.default.prompt([
