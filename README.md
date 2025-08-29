@@ -2,6 +2,10 @@
 
 A simple and powerful Command Line Interface (CLI) tool designed to streamline the process of generating Git Pull Request (PR) descriptions. By analyzing your local Git commit history and leveraging AI, PR-CLI helps you create clear, concise, and comprehensive PR descriptions, optionally using predefined templates and supporting multiple languages.
 
+## Architecture
+
+PR-CLI operates by first analyzing your local Git commit history to extract relevant information. It then leverages an AI model (Google Gemini) to process this information, optionally integrating with predefined PR templates. The tool intelligently fills in template sections and refines the PR description based on your commit messages and chosen language, ultimately providing a structured and comprehensive output.
+
 ## Features
 
 - **Automated PR Description Generation:** Analyzes your Git commit history to automatically generate a structured PR description.
