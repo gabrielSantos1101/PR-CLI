@@ -629,19 +629,36 @@ async function main() {
       ]);
 
       if (createNewBranch) {
-        const defaultNewBranchName = `feat/pr-cli-${Date.now()
-          .toString()
-          .substring(8)}`;
-        const { newBranchName } = await inquirer.default.prompt([
+        const { branchType } = await inquirer.default.prompt([
           {
-            type: "input",
-            name: "newBranchName",
-            message: "Enter the new branch name:",
-            default: defaultNewBranchName,
-            validate: (input) =>
-              input.trim().length > 0 || "Branch name cannot be empty.",
+            type: "list",
+            name: "branchType",
+            message: "Select the type of change for the new branch:",
+            choices: Object.keys(COMMIT_TYPES).map((type) => ({
+              name: `${type}: ${COMMIT_TYPES[type]}`,
+              value: type,
+            })),
+            default: "feat",
           },
         ]);
+
+        const { branchDescription } = await inquirer.default.prompt([
+          {
+            type: "input",
+            name: "branchDescription",
+            message:
+              "Enter a short description for the new branch (kebab-case):",
+            validate: (input) =>
+              input.trim().length > 0 || "Branch description cannot be empty.",
+            filter: (input) =>
+              input
+                .toLowerCase()
+                .replace(/\s+/g, "-")
+                .replace(/[^a-z0-9-]/g, ""),
+          },
+        ]);
+
+        const newBranchName = `${branchType}/${branchDescription}`;
 
         try {
           await executeCommand(`git checkout -b ${newBranchName}`);
