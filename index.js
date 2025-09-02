@@ -469,7 +469,8 @@ Generated PR Description:
     return response.text();
   } catch (error) {
     console.error("Error generating AI content:", error.message);
-    return "<!-- AI content generation failed. Please fill manually. -->";
+    console.warn("Returning original template due to AI generation failure.");
+    return `<!-- Error: AI content generation failed. Please review and fill manually. Details: ${error.message} -->\n\n${templateContent}`;
   }
 }
 
@@ -578,6 +579,12 @@ async function main() {
       devDescription
     );
     prDescription = aiGeneratedContent;
+    if (prDescription.startsWith("<!-- Error: AI content generation failed.")) {
+      console.warn(
+        "AI generation failed, falling back to categorized commit description."
+      );
+      prDescription = generatePRDescription(categorized, templateContent);
+    }
   } else {
     prDescription = generatePRDescription(categorized, templateContent);
   }
