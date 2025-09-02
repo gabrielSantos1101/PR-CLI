@@ -419,6 +419,101 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
 }
 
 /**
+ * Generates a suggested branch type (e.g., "feat", "fix") using Google Gemini based on commit messages.
+ * @param {string[]} commitMessages An array of raw commit messages.
+ * @returns {Promise<string>} The AI-generated branch type. Returns a fallback ("feat") if AI generation fails.
+ */
+async function generateAIBranchType(commitMessages) {
+  if (!GEMINI_API_KEY) {
+    console.warn(
+      "GEMINI_API_KEY is not set. Skipping AI branch type generation."
+    );
+    return "feat";
+  }
+
+  const prompt = `
+You are an expert in inferring Git conventional commit types from commit messages.
+Your task is to suggest the most appropriate conventional commit type (e.g., "feat", "fix", "docs", "refactor", "chore", "style", "test", "perf", "ci", "build", "revert") based on the provided commit messages.
+
+Rules:
+1.  Return only the type string, without any additional text or formatting.
+2.  If multiple types seem applicable, choose the most dominant one.
+3.  If no clear type can be inferred, default to "feat".
+
+Commit Messages:
+${commitMessages.join("\n")}
+
+Suggested Branch Type:
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const generatedType = response.text().trim().toLowerCase();
+    if (COMMIT_TYPES[generatedType]) {
+      return generatedType;
+    }
+    return "feat";
+  } catch (error) {
+    console.error("Error generating AI branch type:", error.message);
+    return "feat";
+  }
+}
+
+/**
+ * Generates a full branch name (type/description-kebab-case) using Google Gemini based on commit messages.
+ * @param {string[]} commitMessages An array of raw commit messages.
+ * @returns {Promise<string>} The AI-generated full branch name. Returns a fallback if AI generation fails.
+ */
+async function generateAIBranchName(commitMessages) {
+  if (!GEMINI_API_KEY) {
+    console.warn(
+      "GEMINI_API_KEY is not set. Skipping AI branch name generation."
+    );
+    return "";
+  }
+
+  const prompt = `
+You are an expert in generating very short, objective, kebab-cased Git branch names following conventional commit types.
+Your task is to create a concise, descriptive branch name in the format "type/description-kebab-case" based on the provided commit messages.
+
+Rules:
+1.  The branch name must start with a conventional commit type (e.g., "feat", "fix", "docs", "refactor", "chore", "style", "test", "perf", "ci", "build", "revert"). Infer the most appropriate type from the commit messages.
+2.  The description part should be in kebab-case (lowercase, words separated by hyphens).
+3.  It must be very short and objective, reflecting the core purpose of the changes. Aim for 2-4 words for the description part.
+4.  The entire branch name should be concise.
+5.  Example: If commits are "Add user authentication and authorization", the output should be "feat/add-auth".
+6.  Example: If commits are "Fix bug in login page where user couldn't log in", the output should be "fix/login-bug".
+7.  Example: If commits are "Update README with new installation steps", the output should be "docs/update-readme".
+
+Commit Messages:
+${commitMessages.join("\n")}
+
+Generated Branch Name (type/description-kebab-case):
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const generatedName = response.text().trim();
+    const parts = generatedName.split("/");
+    if (parts.length === 2 && COMMIT_TYPES[parts[0]]) {
+      const type = parts[0];
+      const description = parts[1]
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]/g, "")
+        .replace(/^-+|-+$/g, "");
+      return `${type}/${description}`;
+    }
+    return "";
+  } catch (error) {
+    console.error("Error generating AI branch name:", error.message);
+    return "";
+  }
+}
+
+/**
  * Generates content using Google Gemini based on commit messages and a template.
  * This function constructs a prompt for the AI to generate a PR description by filling
  * the provided template with information extracted from commit messages.
@@ -629,36 +724,92 @@ async function main() {
       ]);
 
       if (createNewBranch) {
-        const { branchType } = await inquirer.default.prompt([
+        const { generateWithAI } = await inquirer.default.prompt([
           {
-            type: "list",
-            name: "branchType",
-            message: "Select the type of change for the new branch:",
-            choices: Object.keys(COMMIT_TYPES).map((type) => ({
-              name: `${type}: ${COMMIT_TYPES[type]}`,
-              value: type,
-            })),
-            default: "feat",
+            type: "confirm",
+            name: "generateWithAI",
+            message: "Do you want to generate the branch name using AI?",
+            default: true,
           },
         ]);
 
-        const { branchDescription } = await inquirer.default.prompt([
-          {
-            type: "input",
-            name: "branchDescription",
-            message:
-              "Enter a short description for the new branch (kebab-case):",
-            validate: (input) =>
-              input.trim().length > 0 || "Branch description cannot be empty.",
-            filter: (input) =>
-              input
-                .toLowerCase()
-                .replace(/\s+/g, "-")
-                .replace(/[^a-z0-9-]/g, ""),
-          },
-        ]);
-
-        const newBranchName = `${branchType}/${branchDescription}`;
+        let newBranchName;
+        if (generateWithAI) {
+          console.log("Generating branch name with AI...");
+          newBranchName = await generateAIBranchName(commitMessages);
+          if (!newBranchName) {
+            console.warn(
+              "AI failed to generate a branch name. Falling back to manual input with AI-suggested type."
+            );
+            const suggestedType = await generateAIBranchType(commitMessages);
+            const { manualDescription } = await inquirer.default.prompt([
+              {
+                type: "input",
+                name: "manualDescription",
+                message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
+                validate: (input) =>
+                  input.trim().length > 0 ||
+                  "Branch description cannot be empty.",
+                filter: (input) =>
+                  input
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")
+                    .replace(/[^a-z0-9-]/g, ""),
+              },
+            ]);
+            newBranchName = `${suggestedType}/${manualDescription}`;
+          } else {
+            console.log(`AI suggested branch name: ${newBranchName}`);
+            const { confirmAIBranchName } = await inquirer.default.prompt([
+              {
+                type: "confirm",
+                name: "confirmAIBranchName",
+                message: `Confirm AI-generated branch name: "${newBranchName}"?`,
+                default: true,
+              },
+            ]);
+            if (!confirmAIBranchName) {
+              const suggestedType = await generateAIBranchType(commitMessages);
+              const { manualDescription } = await inquirer.default.prompt([
+                {
+                  type: "input",
+                  name: "manualDescription",
+                  message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
+                  validate: (input) =>
+                    input.trim().length > 0 ||
+                    "Branch description cannot be empty.",
+                  filter: (input) =>
+                    input
+                      .toLowerCase()
+                      .replace(/\s+/g, "-")
+                      .replace(/[^a-z0-9-]/g, ""),
+                },
+              ]);
+              newBranchName = `${suggestedType}/${manualDescription}`;
+            }
+          }
+        } else {
+          console.log(
+            "Skipping AI branch name generation. Suggesting type based on commits."
+          );
+          const suggestedType = await generateAIBranchType(commitMessages);
+          const { manualDescription } = await inquirer.default.prompt([
+            {
+              type: "input",
+              name: "manualDescription",
+              message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
+              validate: (input) =>
+                input.trim().length > 0 ||
+                "Branch description cannot be empty.",
+              filter: (input) =>
+                input
+                  .toLowerCase()
+                  .replace(/\s+/g, "-")
+                  .replace(/[^a-z0-9-]/g, ""),
+            },
+          ]);
+          newBranchName = `${suggestedType}/${manualDescription}`;
+        }
 
         try {
           await executeCommand(`git checkout -b ${newBranchName}`);
