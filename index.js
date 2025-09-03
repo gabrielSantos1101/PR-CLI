@@ -10,6 +10,7 @@ const { ExitPromptError } = require("@inquirer/core");
 const clipboardy = require("clipboardy");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const ora = require("ora").default;
+const os = require("os");
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
@@ -393,9 +394,7 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
         console.log("Exiting without creating a new PR.");
         return;
       }
-    } catch (error) {
-      // No existing PR, continue
-    }
+    } catch (error) {}
 
     try {
       await executeCommand(
@@ -619,10 +618,58 @@ Generated PR Description:
  */
 const PACKAGE_VERSION = require("./package.json").version;
 const PACKAGE_NAME = require("./package.json").name;
+const UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000;
+
+/**
+ * Gets the path to the update timestamp file.
+ * @returns {string} The full path to the timestamp file.
+ */
+function getUpdateTimestampFilePath() {
+  const homeDir = os.homedir();
+  const cliConfigDir = path.join(homeDir, ".pr-cli");
+  return path.join(cliConfigDir, "last_update_check.txt");
+}
+
+/**
+ * Compares two semantic version strings.
+ * @param {string} v1 Version string 1.
+ * @param {string} v2 Version string 2.
+ * @returns {boolean} True if v1 is older than v2, false otherwise.
+ */
+function isVersionOlder(v1, v2) {
+  const parts1 = v1.split(".").map(Number);
+  const parts2 = v2.split(".").map(Number);
+
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+
+    if (p1 < p2) {
+      return true;
+    }
+    if (p1 > p2) {
+      return false;
+    }
+  }
+  return false;
+}
 
 async function checkForUpdates() {
   const spinner = ora("Checking for updates...").start();
+  const timestampFilePath = getUpdateTimestampFilePath();
+
   try {
+    const lastCheckTime = await fs
+      .readFile(timestampFilePath, "utf-8")
+      .then(Number)
+      .catch(() => 0);
+    const currentTime = Date.now();
+
+    if (currentTime - lastCheckTime < UPDATE_CHECK_INTERVAL) {
+      spinner.succeed();
+      return false;
+    }
+
     const response = await fetch(`https://registry.npmjs.org/${PACKAGE_NAME}`);
     if (!response.ok) {
       spinner.fail(`Failed to fetch package info: ${response.statusText}`);
@@ -631,13 +678,21 @@ async function checkForUpdates() {
     const data = await response.json();
     const latestVersion = data["dist-tags"].latest;
 
-    if (PACKAGE_VERSION < latestVersion) {
+    if (isVersionOlder(PACKAGE_VERSION, latestVersion)) {
       spinner.warn(`A new version of ${PACKAGE_NAME} is available!`);
       console.warn(`   Current version: ${PACKAGE_VERSION}`);
       console.warn(`   Latest version:  ${latestVersion}`);
+      await fs
+        .mkdir(path.dirname(timestampFilePath), { recursive: true })
+        .catch(() => {});
+      await fs.writeFile(timestampFilePath, currentTime.toString());
       return true;
     }
     spinner.succeed("No updates available.");
+    await fs
+      .mkdir(path.dirname(timestampFilePath), { recursive: true })
+      .catch(() => {});
+    await fs.writeFile(timestampFilePath, currentTime.toString());
     return false;
   } catch (error) {
     spinner.fail("Error checking for updates.");
