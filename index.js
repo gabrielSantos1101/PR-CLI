@@ -6,8 +6,12 @@ const path = require("path");
 const yargs = require("yargs/yargs");
 const { hideBin } = require("yargs/helpers");
 const inquirer = require("inquirer");
+const { ExitPromptError } = require("@inquirer/core");
 const clipboardy = require("clipboardy");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const ora = require("ora").default;
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 /**
  * Google Gemini API Key.
@@ -48,15 +52,26 @@ const COMMIT_TYPES = {
  * @param {string} command The command to execute.
  * @returns {Promise<string>} The command's stdout.
  */
-async function executeCommand(command) {
+async function executeCommand(
+  command,
+  spinnerText = "Executing command...",
+  logSuccess = true
+) {
+  const spinner = ora(spinnerText).start();
   return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => {
       if (error) {
+        spinner.fail(`Command failed: ${command}`);
         console.error(`exec error: ${error}`);
         return reject(error);
       }
       if (stderr) {
+        spinner.warn(`Command had stderr: ${stderr}`);
         console.error(`stderr: ${stderr}`);
+      } else if (logSuccess) {
+        spinner.succeed(`Command successful: ${command}`);
+      } else {
+        spinner.stop();
       }
       resolve(stdout.trim());
     });
@@ -76,25 +91,36 @@ async function executeCommand(command) {
  * @returns {Promise<string[]>} An array of commit messages. Returns an empty array if no commits are found or an error occurs.
  */
 async function getCommitHistory(count) {
+  const spinner = ora("Fetching commit history...").start();
   try {
+    let commitLogs;
     if (count) {
-      const commitLogs = await executeCommand(
-        `git log -n ${count} --pretty=format:"%s"`
+      commitLogs = await executeCommand(
+        `git log -n ${count} --pretty=format:"%s"`,
+        "Fetching specific number of commits...",
+        false
       );
-      return commitLogs.split("\n").filter(Boolean);
     } else {
       const currentBranch = await executeCommand(
-        "git rev-parse --abbrev-ref HEAD"
+        "git rev-parse --abbrev-ref HEAD",
+        "Getting current branch...",
+        false
       );
       const lastPushCommit = await executeCommand(
-        `git merge-base ${currentBranch} origin/${currentBranch}`
+        `git merge-base ${currentBranch} origin/${currentBranch}`,
+        "Getting last push commit...",
+        false
       );
-      const commitLogs = await executeCommand(
-        `git log ${lastPushCommit}..HEAD --pretty=format:"%s"`
+      commitLogs = await executeCommand(
+        `git log ${lastPushCommit}..HEAD --pretty=format:"%s"`,
+        "Fetching commits since last push...",
+        false
       );
-      return commitLogs.split("\n").filter(Boolean);
     }
+    spinner.succeed("Commit history fetched.");
+    return commitLogs.split("\n").filter(Boolean);
   } catch (error) {
+    spinner.fail("Failed to get Git commit history.");
     console.error(
       "Failed to get Git commit history. Ensure you are in a Git repository and have pushed to origin."
     );
@@ -351,12 +377,14 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
   const prTitle = "feat: Automated PR description";
 
   try {
-    await executeCommand("gh --version");
+    await executeCommand("gh --version", "Checking for GitHub CLI...");
     console.log("GitHub CLI detected.");
 
     try {
       const existingPr = await executeCommand(
-        `gh pr view ${currentBranch} --json url --jq .url`
+        `gh pr view ${currentBranch} --json url --jq .url`,
+        `Checking for existing PR for branch "${currentBranch}"...`,
+        false
       );
       if (existingPr) {
         console.log(
@@ -365,11 +393,15 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
         console.log("Exiting without creating a new PR.");
         return;
       }
-    } catch (error) {}
+    } catch (error) {
+      // No existing PR, continue
+    }
 
     try {
       await executeCommand(
-        `git rev-parse --abbrev-ref --symbolic-full-name @{u}`
+        `git rev-parse --abbrev-ref --symbolic-full-name @{u}`,
+        `Checking if branch "${currentBranch}" is published...`,
+        false
       );
     } catch (error) {
       console.log(`Branch "${currentBranch}" is not published to remote.`);
@@ -385,7 +417,8 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
       if (publishBranch) {
         try {
           await executeCommand(
-            `git push --set-upstream origin ${currentBranch}`
+            `git push --set-upstream origin ${currentBranch}`,
+            `Publishing branch "${currentBranch}"...`
           );
           console.log(`Branch "${currentBranch}" published successfully.`);
         } catch (publishError) {
@@ -404,7 +437,7 @@ async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
     await fs.writeFile(tempFilePath, prDescription);
 
     const ghCommand = `gh pr create --title "${prTitle}" --body-file "${tempFilePath}" --base "${baseBranch}" --head "${currentBranch}"`;
-    const ghOutput = await executeCommand(ghCommand);
+    const ghOutput = await executeCommand(ghCommand, "Creating GitHub PR...");
     console.log("GitHub CLI output:\n", ghOutput);
 
     await fs.unlink(tempFilePath);
@@ -431,6 +464,7 @@ async function generateAIBranchType(commitMessages) {
     return "feat";
   }
 
+  const spinner = ora("Generating AI branch type...").start();
   const prompt = `
 You are an expert in inferring Git conventional commit types from commit messages.
 Your task is to suggest the most appropriate conventional commit type (e.g., "feat", "fix", "docs", "refactor", "chore", "style", "test", "perf", "ci", "build", "revert") based on the provided commit messages.
@@ -451,10 +485,15 @@ Suggested Branch Type:
     const response = await result.response;
     const generatedType = response.text().trim().toLowerCase();
     if (COMMIT_TYPES[generatedType]) {
+      spinner.succeed("AI branch type generated.");
       return generatedType;
     }
+    spinner.warn(
+      "AI generated an unrecognized branch type. Falling back to 'feat'."
+    );
     return "feat";
   } catch (error) {
+    spinner.fail("Error generating AI branch type.");
     console.error("Error generating AI branch type:", error.message);
     return "feat";
   }
@@ -473,6 +512,7 @@ async function generateAIBranchName(commitMessages) {
     return "";
   }
 
+  const spinner = ora("Generating AI branch name...").start();
   const prompt = `
 You are an expert in generating very short, objective, kebab-cased Git branch names following conventional commit types.
 Your task is to create a concise, descriptive branch name in the format "type/description-kebab-case" based on the provided commit messages.
@@ -494,20 +534,19 @@ Generated Branch Name (type/description-kebab-case):
 
   try {
     const result = await model.generateContent(prompt);
-    const response = await result.response;
+    const response = result.response;
     const generatedName = response.text().trim();
     const parts = generatedName.split("/");
     if (parts.length === 2 && COMMIT_TYPES[parts[0]]) {
-      const type = parts[0];
-      const description = parts[1]
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9-]/g, "")
-        .replace(/^-+|-+$/g, "");
-      return `${type}/${description}`;
+      spinner.succeed("AI branch name generated.");
+      return generatedName;
     }
+    spinner.warn(
+      "AI generated an unrecognized branch name. Returning empty string."
+    );
     return "";
   } catch (error) {
+    spinner.fail("Error generating AI branch name.");
     console.error("Error generating AI branch name:", error.message);
     return "";
   }
@@ -534,6 +573,7 @@ async function generateAIContent(
     return "";
   }
 
+  const spinner = ora("Generating AI-enhanced PR description...").start();
   const prompt = `
 You are an expert in writing Git Pull Request descriptions.
 Your task is to generate a clear, concise, and comprehensive Pull Request description.
@@ -560,9 +600,11 @@ Generated PR Description:
 
   try {
     const result = await model.generateContent(prompt);
-    const response = await result.response;
+    const response = result.response;
+    spinner.succeed("AI-enhanced PR description generated.");
     return response.text();
   } catch (error) {
+    spinner.fail("Error generating AI content.");
     console.error("Error generating AI content:", error.message);
     console.warn("Returning original template due to AI generation failure.");
     return `<!-- Error: AI content generation failed. Please review and fill manually. Details: ${error.message} -->\n\n${templateContent}`;
@@ -575,171 +617,297 @@ Generated PR Description:
  * prompts for a PR template and language (if available), generates the PR description
  * (potentially with AI enhancement), and optionally copies it to the clipboard.
  */
+const PACKAGE_VERSION = require("./package.json").version;
+const PACKAGE_NAME = require("./package.json").name;
+
+async function checkForUpdates() {
+  const spinner = ora("Checking for updates...").start();
+  try {
+    const response = await fetch(`https://registry.npmjs.org/${PACKAGE_NAME}`);
+    if (!response.ok) {
+      spinner.fail(`Failed to fetch package info: ${response.statusText}`);
+      throw new Error(`Failed to fetch package info: ${response.statusText}`);
+    }
+    const data = await response.json();
+    const latestVersion = data["dist-tags"].latest;
+
+    if (PACKAGE_VERSION < latestVersion) {
+      spinner.warn(`A new version of ${PACKAGE_NAME} is available!`);
+      console.warn(`   Current version: ${PACKAGE_VERSION}`);
+      console.warn(`   Latest version:  ${latestVersion}`);
+      return true;
+    }
+    spinner.succeed("No updates available.");
+    return false;
+  } catch (error) {
+    spinner.fail("Error checking for updates.");
+    console.error("Error checking for updates:", error.message);
+    return false;
+  }
+}
+
 async function main() {
-  const argv = yargs(hideBin(process.argv))
-    .option("copy", {
-      alias: "c",
-      type: "boolean",
-      description:
-        "Automatically copy the generated PR description to the clipboard",
-    })
-    .option("github", {
-      alias: "g",
-      type: "boolean",
-      description: "Open GitHub PR page with pre-filled description in browser",
-    })
-    .option("gh", {
-      type: "boolean",
-      description: "Create GitHub PR using GitHub CLI",
-    })
-    .help().argv;
+  try {
+    const updateAvailable = await checkForUpdates();
 
-  console.log("Generating PR description...");
-
-  let commitMessages = await getCommitHistory();
-
-  if (commitMessages.length === 0) {
-    console.log("No new local commits found since the last push to origin.");
-    const { commitCount } = await inquirer.default.prompt([
-      {
-        type: "number",
-        name: "commitCount",
-        message:
-          "How many remote commits should be read for history? (Enter 0 to exit)",
-        default: 5,
-        validate: (input) =>
-          input >= 0 || "Please enter a non-negative number.",
-      },
-    ]);
-
-    if (commitCount === 0) {
-      console.log("Exiting without generating PR description.");
-      return;
-    }
-    commitMessages = await getCommitHistory(commitCount);
-    if (commitMessages.length === 0) {
-      console.log("No commits found even from remote. Exiting.");
-      return;
-    }
-  }
-
-  const { devDescription } = await inquirer.default.prompt([
-    {
-      type: "input",
-      name: "devDescription",
-      message: "Please provide a brief description of what you did:",
-      default: "",
-    },
-  ]);
-
-  const categorized = categorizeCommits(commitMessages);
-
-  const templates = await getPRTemplates();
-  let templateContent = null;
-  if (templates.length > 0) {
-    templateContent = await chooseTemplate(templates);
-  }
-
-  let templateLanguage = "en";
-
-  if (templateContent) {
-    const { selectedLanguage } = await inquirer.default.prompt([
-      {
-        type: "list",
-        name: "selectedLanguage",
-        message: "Select the language of the PR template:",
-        choices: [
-          { name: "English", value: "en" },
-          { name: "Portuguese", value: "pt" },
-          { name: "Spanish", value: "es" },
-          { name: "French", value: "fr" },
-          { name: "German", value: "de" },
-          { name: "Italian", value: "it" },
-          { name: "Japanese", value: "ja" },
-          { name: "Chinese", value: "zh" },
-        ],
-        default: "en",
-      },
-    ]);
-    templateLanguage = selectedLanguage;
-  }
-
-  let prDescription;
-  if (templateContent) {
-    console.log("Generating AI-enhanced PR description with template...");
-    const aiGeneratedContent = await generateAIContent(
-      commitMessages,
-      templateContent,
-      templateLanguage,
-      devDescription
-    );
-    prDescription = aiGeneratedContent;
-    if (prDescription.startsWith("<!-- Error: AI content generation failed.")) {
-      console.warn(
-        "AI generation failed, falling back to categorized commit description."
-      );
-      prDescription = generatePRDescription(categorized, templateContent);
-    }
-  } else {
-    prDescription = generatePRDescription(categorized, templateContent);
-  }
-
-  console.log("\n--- Generated PR Description ---\n");
-  console.log(prDescription);
-  console.log("\n--------------------------------\n");
-
-  if (argv.copy) {
-    try {
-      await clipboardy.write(prDescription);
-      console.log("PR description copied to clipboard!");
-    } catch (error) {
-      console.error("Failed to copy to clipboard:", error.message);
-    }
-  }
-
-  if (argv.github) {
-    const repoUrl = await executeCommand("git config --get remote.origin.url");
-    const currentBranch = await executeCommand(
-      "git rev-parse --abbrev-ref HEAD"
-    );
-    const baseBranch = "main";
-    await openGitHubPRInBrowser(
-      prDescription,
-      repoUrl,
-      currentBranch,
-      baseBranch
-    );
-  } else if (argv.gh) {
-    let currentBranch = await executeCommand("git rev-parse --abbrev-ref HEAD");
-    const baseBranch = "main";
-
-    if (currentBranch === "main" || currentBranch === "master") {
-      const { createNewBranch } = await inquirer.default.prompt([
+    if (updateAvailable) {
+      const { confirmUpdate } = await inquirer.default.prompt([
         {
           type: "confirm",
-          name: "createNewBranch",
-          message: `You are on the "${currentBranch}" branch. Do you want to create a new branch for your PR?`,
+          name: "confirmUpdate",
+          message: `Do you want to update ${PACKAGE_NAME} to the latest version? (This will run 'npm i -g ${PACKAGE_NAME}')`,
           default: true,
         },
       ]);
 
-      if (createNewBranch) {
-        const { generateWithAI } = await inquirer.default.prompt([
+      if (confirmUpdate) {
+        const updateSpinner = ora(`Updating ${PACKAGE_NAME}...`).start();
+        try {
+          await executeCommand(
+            `npm i -g ${PACKAGE_NAME}`,
+            "Installing update..."
+          );
+          updateSpinner.succeed(
+            `${PACKAGE_NAME} updated successfully! Please restart the CLI.`
+          );
+          process.exit(0);
+        } catch (error) {
+          console.error(`Failed to update ${PACKAGE_NAME}:`, error.message);
+          console.log(
+            "Please try updating manually: npm i -g pr-cli-generator"
+          );
+        }
+      } else {
+        console.log("Update skipped. Continuing with current version.");
+      }
+    }
+
+    const argv = yargs(hideBin(process.argv))
+      .option("copy", {
+        alias: "c",
+        type: "boolean",
+        description:
+          "Automatically copy the generated PR description to the clipboard",
+      })
+      .option("github", {
+        alias: "g",
+        type: "boolean",
+        description:
+          "Open GitHub PR page with pre-filled description in browser",
+      })
+      .option("gh", {
+        type: "boolean",
+        description: "Create GitHub PR using GitHub CLI",
+      })
+      .help().argv;
+
+    let commitMessages = await getCommitHistory();
+
+    if (commitMessages.length === 0) {
+      console.log("No new local commits found since the last push to origin.");
+      const { commitCount } = await inquirer.default.prompt([
+        {
+          type: "number",
+          name: "commitCount",
+          message:
+            "How many remote commits should be read for history? (Enter 0 to exit)",
+          default: 5,
+          validate: (input) =>
+            input >= 0 || "Please enter a non-negative number.",
+        },
+      ]);
+
+      if (commitCount === 0) {
+        console.log("Exiting without generating PR description.");
+        return;
+      }
+      commitMessages = await getCommitHistory(commitCount);
+      if (commitMessages.length === 0) {
+        console.log("No commits found even from remote. Exiting.");
+        return;
+      }
+    }
+
+    const { devDescription } = await inquirer.default.prompt([
+      {
+        type: "input",
+        name: "devDescription",
+        message: "Please provide a brief description of what you did:",
+        default: "",
+      },
+    ]);
+
+    const categorized = categorizeCommits(commitMessages);
+
+    const templates = await getPRTemplates();
+    let templateContent = null;
+    if (templates.length > 0) {
+      templateContent = await chooseTemplate(templates);
+    }
+
+    let templateLanguage = "en";
+
+    if (templateContent) {
+      const { selectedLanguage } = await inquirer.default.prompt([
+        {
+          type: "list",
+          name: "selectedLanguage",
+          message: "Select the language of the PR template:",
+          choices: [
+            { name: "English", value: "en" },
+            { name: "Portuguese", value: "pt" },
+            { name: "Spanish", value: "es" },
+            { name: "French", value: "fr" },
+            { name: "German", value: "de" },
+            { name: "Italian", value: "it" },
+            { name: "Japanese", value: "ja" },
+            { name: "Chinese", value: "zh" },
+          ],
+          default: "en",
+        },
+      ]);
+      templateLanguage = selectedLanguage;
+    }
+
+    let prDescription;
+    if (templateContent) {
+      const aiGeneratedContent = await generateAIContent(
+        commitMessages,
+        templateContent,
+        templateLanguage,
+        devDescription
+      );
+      prDescription = aiGeneratedContent;
+      if (
+        prDescription.startsWith("<!-- Error: AI content generation failed.")
+      ) {
+        console.warn(
+          "AI generation failed, falling back to categorized commit description."
+        );
+        prDescription = generatePRDescription(categorized, templateContent);
+      }
+    } else {
+      prDescription = generatePRDescription(categorized, templateContent);
+    }
+
+    console.log("\n--- Generated PR Description ---\n");
+    console.log(prDescription);
+    console.log("\n--------------------------------\n");
+
+    if (argv.copy) {
+      try {
+        await clipboardy.write(prDescription);
+        console.log("PR description copied to clipboard!");
+      } catch (error) {
+        console.error("Failed to copy to clipboard:", error.message);
+      }
+    }
+
+    if (argv.github) {
+      const repoUrl = await executeCommand(
+        "git config --get remote.origin.url",
+        "Getting repository URL...",
+        false
+      );
+      const currentBranch = await executeCommand(
+        "git rev-parse --abbrev-ref HEAD",
+        "Getting current branch...",
+        false
+      );
+      const baseBranch = "main";
+      await openGitHubPRInBrowser(
+        prDescription,
+        repoUrl,
+        currentBranch,
+        baseBranch
+      );
+    } else if (argv.gh) {
+      let currentBranch = await executeCommand(
+        "git rev-parse --abbrev-ref HEAD",
+        "Getting current branch...",
+        false
+      );
+      const baseBranch = "main";
+
+      if (currentBranch === "main" || currentBranch === "master") {
+        const { createNewBranch } = await inquirer.default.prompt([
           {
             type: "confirm",
-            name: "generateWithAI",
-            message: "Do you want to generate the branch name using AI?",
+            name: "createNewBranch",
+            message: `You are on the "${currentBranch}" branch. Do you want to create a new branch for your PR?`,
             default: true,
           },
         ]);
 
-        let newBranchName;
-        if (generateWithAI) {
-          console.log("Generating branch name with AI...");
-          newBranchName = await generateAIBranchName(commitMessages);
-          if (!newBranchName) {
-            console.warn(
-              "AI failed to generate a branch name. Falling back to manual input with AI-suggested type."
+        if (createNewBranch) {
+          const { generateWithAI } = await inquirer.default.prompt([
+            {
+              type: "confirm",
+              name: "generateWithAI",
+              message: "Do you want to generate the branch name using AI?",
+              default: true,
+            },
+          ]);
+
+          let newBranchName;
+          if (generateWithAI) {
+            newBranchName = await generateAIBranchName(commitMessages);
+            if (!newBranchName) {
+              console.warn(
+                "AI failed to generate a branch name. Falling back to manual input with AI-suggested type."
+              );
+              const suggestedType = await generateAIBranchType(commitMessages);
+              const { manualDescription } = await inquirer.default.prompt([
+                {
+                  type: "input",
+                  name: "manualDescription",
+                  message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
+                  validate: (input) =>
+                    input.trim().length > 0 ||
+                    "Branch description cannot be empty.",
+                  filter: (input) =>
+                    input
+                      .toLowerCase()
+                      .replace(/\s+/g, "-")
+                      .replace(/[^a-z0-9-]/g, ""),
+                },
+              ]);
+              newBranchName = `${suggestedType}/${manualDescription}`;
+            } else {
+              console.log(`AI suggested branch name: ${newBranchName}`);
+              const { confirmAIBranchName } = await inquirer.default.prompt([
+                {
+                  type: "confirm",
+                  name: "confirmAIBranchName",
+                  message: `Confirm AI-generated branch name: "${newBranchName}"?`,
+                  default: true,
+                },
+              ]);
+              if (!confirmAIBranchName) {
+                const suggestedType = await generateAIBranchType(
+                  commitMessages
+                );
+                const { manualDescription } = await inquirer.default.prompt([
+                  {
+                    type: "input",
+                    name: "manualDescription",
+                    message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
+                    validate: (input) =>
+                      input.trim().length > 0 ||
+                      "Branch description cannot be empty.",
+                    filter: (input) =>
+                      input
+                        .toLowerCase()
+                        .replace(/\s+/g, "-")
+                        .replace(/[^a-z0-9-]/g, ""),
+                  },
+                ]);
+                newBranchName = `${suggestedType}/${manualDescription}`;
+              }
+            }
+          } else {
+            console.log(
+              "Skipping AI branch name generation. Suggesting type based on commits."
             );
             const suggestedType = await generateAIBranchType(commitMessages);
             const { manualDescription } = await inquirer.default.prompt([
@@ -758,74 +926,30 @@ async function main() {
               },
             ]);
             newBranchName = `${suggestedType}/${manualDescription}`;
-          } else {
-            console.log(`AI suggested branch name: ${newBranchName}`);
-            const { confirmAIBranchName } = await inquirer.default.prompt([
-              {
-                type: "confirm",
-                name: "confirmAIBranchName",
-                message: `Confirm AI-generated branch name: "${newBranchName}"?`,
-                default: true,
-              },
-            ]);
-            if (!confirmAIBranchName) {
-              const suggestedType = await generateAIBranchType(commitMessages);
-              const { manualDescription } = await inquirer.default.prompt([
-                {
-                  type: "input",
-                  name: "manualDescription",
-                  message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
-                  validate: (input) =>
-                    input.trim().length > 0 ||
-                    "Branch description cannot be empty.",
-                  filter: (input) =>
-                    input
-                      .toLowerCase()
-                      .replace(/\s+/g, "-")
-                      .replace(/[^a-z0-9-]/g, ""),
-                },
-              ]);
-              newBranchName = `${suggestedType}/${manualDescription}`;
-            }
+          }
+
+          try {
+            await executeCommand(`git checkout -b ${newBranchName}`);
+            console.log(`Switched to new branch: ${newBranchName}`);
+            currentBranch = newBranchName;
+          } catch (error) {
+            console.error(
+              `Failed to create and switch to new branch: ${error.message}`
+            );
+            return;
           }
         } else {
-          console.log(
-            "Skipping AI branch name generation. Suggesting type based on commits."
-          );
-          const suggestedType = await generateAIBranchType(commitMessages);
-          const { manualDescription } = await inquirer.default.prompt([
-            {
-              type: "input",
-              name: "manualDescription",
-              message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
-              validate: (input) =>
-                input.trim().length > 0 ||
-                "Branch description cannot be empty.",
-              filter: (input) =>
-                input
-                  .toLowerCase()
-                  .replace(/\s+/g, "-")
-                  .replace(/[^a-z0-9-]/g, ""),
-            },
-          ]);
-          newBranchName = `${suggestedType}/${manualDescription}`;
+          console.log("Proceeding with PR creation on the current branch.");
         }
-
-        try {
-          await executeCommand(`git checkout -b ${newBranchName}`);
-          console.log(`Switched to new branch: ${newBranchName}`);
-          currentBranch = newBranchName;
-        } catch (error) {
-          console.error(
-            `Failed to create and switch to new branch: ${error.message}`
-          );
-          return;
-        }
-      } else {
-        console.log("Proceeding with PR creation on the current branch.");
       }
+      await createGitHubPRWithCLI(prDescription, currentBranch, baseBranch);
     }
-    await createGitHubPRWithCLI(prDescription, currentBranch, baseBranch);
+  } catch (error) {
+    if (error instanceof ExitPromptError) {
+      console.log("Operation cancelled");
+      process.exit(0);
+    }
+    throw error;
   }
 }
 
