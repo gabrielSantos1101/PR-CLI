@@ -1,12 +1,13 @@
 {
   "name": "pr-cli-generator",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "A simple CLI tool to generate a Git Pull Request (PR) description by analyzing your local Git commit history.",
-  "main": "index.js",
+  "main": "dist/index.js",
   "bin": {
-    "pr-cli": "./index.js"
+    "pr-cli": "./dist/index.js"
   },
   "scripts": {
+    "build": "rollup -c rollup.config.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -17,6 +18,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "files": [
+    "dist"
+  ],
   "bugs": {
     "url": "https://github.com/gabrielSantos1101/PR-CLI/issues"
   },
@@ -28,5 +32,10 @@
     "node-fetch": "^3.3.2",
     "ora": "^8.2.0",
     "yargs": "^18.0.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^28.0.6",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^16.0.1"
   }
 }
