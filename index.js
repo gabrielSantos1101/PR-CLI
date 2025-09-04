@@ -325,6 +325,7 @@ function parseGitHubRepoUrl(repoUrl) {
  */
 async function openGitHubPRInBrowser(
   prDescription,
+  prTitle,
   repoUrl,
   currentBranch,
   baseBranch
@@ -336,7 +337,6 @@ async function openGitHubPRInBrowser(
   }
 
   const { owner, repo } = repoInfo;
-  const prTitle = "feat: Automated PR description";
   const encodedDescription = encodeURIComponent(prDescription);
   const encodedPrTitle = encodeURIComponent(prTitle);
 
@@ -371,12 +371,16 @@ async function openGitHubPRInBrowser(
 /**
  * Creates a GitHub Pull Request using the GitHub CLI.
  * @param {string} prDescription The generated PR description.
+ * @param {string} prTitle The generated PR title.
  * @param {string} currentBranch The current branch name.
  * @param {string} baseBranch The base branch name for the PR.
  */
-async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
-  const prTitle = "feat: Automated PR description";
-
+async function createGitHubPRWithCLI(
+  prDescription,
+  prTitle,
+  currentBranch,
+  baseBranch
+) {
   try {
     await executeCommand("gh --version", "Checking for GitHub CLI...");
     console.log("GitHub CLI detected.");
@@ -858,6 +862,13 @@ async function main() {
       }
     }
 
+    const currentBranchForTitle = await executeCommand(
+      "git rev-parse --abbrev-ref HEAD",
+      "Getting current branch name for PR title...",
+      false
+    );
+    const prTitle = currentBranchForTitle;
+
     if (argv.github) {
       const repoUrl = await executeCommand(
         "git config --get remote.origin.url",
@@ -872,6 +883,7 @@ async function main() {
       const baseBranch = "main";
       await openGitHubPRInBrowser(
         prDescription,
+        prTitle,
         repoUrl,
         currentBranch,
         baseBranch
@@ -997,7 +1009,12 @@ async function main() {
           console.log("Proceeding with PR creation on the current branch.");
         }
       }
-      await createGitHubPRWithCLI(prDescription, currentBranch, baseBranch);
+      await createGitHubPRWithCLI(
+        prDescription,
+        prTitle,
+        currentBranch,
+        baseBranch
+      );
     }
   } catch (error) {
     if (error instanceof ExitPromptError) {
