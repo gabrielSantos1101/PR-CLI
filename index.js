@@ -325,6 +325,7 @@ function parseGitHubRepoUrl(repoUrl) {
  */
 async function openGitHubPRInBrowser(
   prDescription,
+  prTitle,
   repoUrl,
   currentBranch,
   baseBranch
@@ -336,7 +337,6 @@ async function openGitHubPRInBrowser(
   }
 
   const { owner, repo } = repoInfo;
-  const prTitle = "feat: Automated PR description";
   const encodedDescription = encodeURIComponent(prDescription);
   const encodedPrTitle = encodeURIComponent(prTitle);
 
@@ -371,12 +371,16 @@ async function openGitHubPRInBrowser(
 /**
  * Creates a GitHub Pull Request using the GitHub CLI.
  * @param {string} prDescription The generated PR description.
+ * @param {string} prTitle The generated PR title.
  * @param {string} currentBranch The current branch name.
  * @param {string} baseBranch The base branch name for the PR.
  */
-async function createGitHubPRWithCLI(prDescription, currentBranch, baseBranch) {
-  const prTitle = "feat: Automated PR description";
-
+async function createGitHubPRWithCLI(
+  prDescription,
+  prTitle,
+  currentBranch,
+  baseBranch
+) {
   try {
     await executeCommand("gh --version", "Checking for GitHub CLI...");
     console.log("GitHub CLI detected.");
@@ -548,6 +552,57 @@ Generated Branch Name (type/description-kebab-case):
     spinner.fail("Error generating AI branch name.");
     console.error("Error generating AI branch name:", error.message);
     return "";
+  }
+}
+
+/**
+ * Generates a suggested PR title (e.g., "feat: Add user authentication") using Google Gemini based on commit messages.
+ * @param {string[]} commitMessages An array of raw commit messages.
+ * @returns {Promise<string>} The AI-generated PR title. Returns a fallback if AI generation fails.
+ */
+async function generateAIPRTitle(commitMessages) {
+  if (!GEMINI_API_KEY) {
+    console.warn("GEMINI_API_KEY is not set. Skipping AI PR title generation.");
+    return "feat: Automated PR description";
+  }
+
+  const spinner = ora("Generating AI PR title...").start();
+  const prompt = `
+You are an expert in generating very short, objective Git Pull Request titles following conventional commit types.
+Your task is to create a concise, descriptive PR title in the format "type: description" based on the provided commit messages.
+
+Rules:
+1.  The PR title must start with a conventional commit type (e.g., "feat", "fix", "docs", "refactor", "chore", "style", "test", "perf", "ci", "build", "revert"). Infer the most appropriate type from the commit messages.
+2.  The description part should be a short, objective sentence fragment.
+3.  It must be very short and objective, reflecting the core purpose of the changes. Aim for 2-5 words for the description part.
+4.  The entire PR title should be concise.
+5.  Example: If commits are "Add user authentication and authorization", the output should be "feat: Add user authentication".
+6.  Example: If commits are "Fix bug in login page where user couldn't log in", the output should be "fix: Fix login page bug".
+7.  Example: If commits are "Update README with new installation steps", the output should be "docs: Update installation steps".
+
+Commit Messages:
+${commitMessages.join("\n")}
+
+Generated PR Title (type: description):
+`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const generatedTitle = response.text().trim();
+    const match = generatedTitle.match(/^(\w+): (.+)$/);
+    if (match && COMMIT_TYPES[match[1]]) {
+      spinner.succeed("AI PR title generated.");
+      return generatedTitle;
+    }
+    spinner.warn(
+      "AI generated an unrecognized PR title format. Returning fallback title."
+    );
+    return "feat: Automated PR description";
+  } catch (error) {
+    spinner.fail("Error generating AI PR title.");
+    console.error("Error generating AI PR title:", error.message);
+    return "feat: Automated PR description";
   }
 }
 
@@ -858,6 +913,8 @@ async function main() {
       }
     }
 
+    const prTitle = await generateAIPRTitle(commitMessages);
+
     if (argv.github) {
       const repoUrl = await executeCommand(
         "git config --get remote.origin.url",
@@ -872,6 +929,7 @@ async function main() {
       const baseBranch = "main";
       await openGitHubPRInBrowser(
         prDescription,
+        prTitle,
         repoUrl,
         currentBranch,
         baseBranch
@@ -997,7 +1055,12 @@ async function main() {
           console.log("Proceeding with PR creation on the current branch.");
         }
       }
-      await createGitHubPRWithCLI(prDescription, currentBranch, baseBranch);
+      await createGitHubPRWithCLI(
+        prDescription,
+        prTitle,
+        currentBranch,
+        baseBranch
+      );
     }
   } catch (error) {
     if (error instanceof ExitPromptError) {
