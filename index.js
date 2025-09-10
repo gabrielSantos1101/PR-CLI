@@ -862,12 +862,7 @@ async function main() {
       }
     }
 
-    const currentBranchForTitle = await executeCommand(
-      "git rev-parse --abbrev-ref HEAD",
-      "Getting current branch name for PR title...",
-      false
-    );
-    const prTitle = currentBranchForTitle;
+    let prTitle;
 
     if (argv.github) {
       const repoUrl = await executeCommand(
@@ -881,6 +876,7 @@ async function main() {
         false
       );
       const baseBranch = "main";
+      prTitle = currentBranch;
       await openGitHubPRInBrowser(
         prDescription,
         prTitle,
@@ -999,6 +995,7 @@ async function main() {
             await executeCommand(`git checkout -b ${newBranchName}`);
             console.log(`Switched to new branch: ${newBranchName}`);
             currentBranch = newBranchName;
+            prTitle = newBranchName;
           } catch (error) {
             console.error(
               `Failed to create and switch to new branch: ${error.message}`
@@ -1007,7 +1004,10 @@ async function main() {
           }
         } else {
           console.log("Proceeding with PR creation on the current branch.");
+          prTitle = currentBranch;
         }
+      } else {
+        prTitle = currentBranch;
       }
       await createGitHubPRWithCLI(
         prDescription,
