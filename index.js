@@ -605,7 +605,23 @@ Generated PR Description:
     const result = await model.generateContent(prompt);
     const response = result.response;
     spinner.succeed("AI-enhanced PR description generated.");
-    return response.text();
+    let generatedText = response.text().trim();
+    if (
+      generatedText.startsWith("```markdown") &&
+      generatedText.endsWith("```")
+    ) {
+      generatedText = generatedText
+        .substring(11, generatedText.length - 3)
+        .trim();
+    } else if (
+      generatedText.startsWith("```") &&
+      generatedText.endsWith("```")
+    ) {
+      generatedText = generatedText
+        .substring(3, generatedText.length - 3)
+        .trim();
+    }
+    return generatedText;
   } catch (error) {
     spinner.fail("Error generating AI content.");
     console.error("Error generating AI content:", error.message);
@@ -862,12 +878,7 @@ async function main() {
       }
     }
 
-    const currentBranchForTitle = await executeCommand(
-      "git rev-parse --abbrev-ref HEAD",
-      "Getting current branch name for PR title...",
-      false
-    );
-    const prTitle = currentBranchForTitle;
+    let prTitle;
 
     if (argv.github) {
       const repoUrl = await executeCommand(
@@ -881,6 +892,7 @@ async function main() {
         false
       );
       const baseBranch = "main";
+      prTitle = currentBranch;
       await openGitHubPRInBrowser(
         prDescription,
         prTitle,
@@ -999,6 +1011,7 @@ async function main() {
             await executeCommand(`git checkout -b ${newBranchName}`);
             console.log(`Switched to new branch: ${newBranchName}`);
             currentBranch = newBranchName;
+            prTitle = newBranchName;
           } catch (error) {
             console.error(
               `Failed to create and switch to new branch: ${error.message}`
@@ -1007,7 +1020,10 @@ async function main() {
           }
         } else {
           console.log("Proceeding with PR creation on the current branch.");
+          prTitle = currentBranch;
         }
+      } else {
+        prTitle = currentBranch;
       }
       await createGitHubPRWithCLI(
         prDescription,
