@@ -605,7 +605,23 @@ Generated PR Description:
     const result = await model.generateContent(prompt);
     const response = result.response;
     spinner.succeed("AI-enhanced PR description generated.");
-    return response.text();
+    let generatedText = response.text().trim();
+    if (
+      generatedText.startsWith("```markdown") &&
+      generatedText.endsWith("```")
+    ) {
+      generatedText = generatedText
+        .substring(11, generatedText.length - 3)
+        .trim();
+    } else if (
+      generatedText.startsWith("```") &&
+      generatedText.endsWith("```")
+    ) {
+      generatedText = generatedText
+        .substring(3, generatedText.length - 3)
+        .trim();
+    }
+    return generatedText;
   } catch (error) {
     spinner.fail("Error generating AI content.");
     console.error("Error generating AI content:", error.message);
