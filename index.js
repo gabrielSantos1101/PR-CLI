@@ -797,25 +797,66 @@ async function main() {
 
     if (commitMessages.length === 0) {
       console.log("No new local commits found since the last push to origin.");
-      const { commitCount } = await inquirer.default.prompt([
-        {
-          type: "number",
-          name: "commitCount",
-          message:
-            "How many remote commits should be read for history? (Enter 0 to exit)",
-          default: 5,
-          validate: (input) =>
-            input >= 0 || "Please enter a non-negative number.",
-        },
-      ]);
+      try {
+        const currentBranch = await executeCommand(
+          "git rev-parse --abbrev-ref HEAD",
+          "Getting current branch...",
+          false
+        );
+        const commitCountStr = await executeCommand(
+          `git rev-list --count HEAD ^main`,
+          "Counting commits on the current branch...",
+          false
+        );
+        const commitCount = parseInt(commitCountStr, 10);
 
-      if (commitCount === 0) {
-        console.log("Exiting without generating PR description.");
-        return;
+        if (commitCount > 0) {
+          const { confirmCommits } = await inquirer.default.prompt([
+            {
+              type: "confirm",
+              name: "confirmCommits",
+              message: `Found ${commitCount} commits on branch "${currentBranch}". Do you want to use them to create the PR?`,
+              default: true,
+            },
+          ]);
+
+          if (confirmCommits) {
+            commitMessages = await getCommitHistory(commitCount);
+          } else {
+            console.log("Exiting without generating PR description.");
+            return;
+          }
+        } else {
+          console.log(
+            "No commits found on this branch compared to main. Exiting."
+          );
+          return;
+        }
+      } catch (error) {
+        console.log(
+          "Could not count commits against 'main' branch. Falling back to manual input."
+        );
+        const { commitCount } = await inquirer.default.prompt([
+          {
+            type: "number",
+            name: "commitCount",
+            message:
+              "How many remote commits should be read for history? (Enter 0 to exit)",
+            default: 5,
+            validate: (input) =>
+              input >= 0 || "Please enter a non-negative number.",
+          },
+        ]);
+
+        if (commitCount === 0) {
+          console.log("Exiting without generating PR description.");
+          return;
+        }
+        commitMessages = await getCommitHistory(commitCount);
       }
-      commitMessages = await getCommitHistory(commitCount);
+
       if (commitMessages.length === 0) {
-        console.log("No commits found even from remote. Exiting.");
+        console.log("No commits found. Exiting.");
         return;
       }
     }
