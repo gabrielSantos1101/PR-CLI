@@ -379,7 +379,8 @@ async function createGitHubPRWithCLI(
   prDescription,
   prTitle,
   currentBranch,
-  baseBranch
+  baseBranch,
+  argv
 ) {
   try {
     await executeCommand("gh --version", "Checking for GitHub CLI...");
@@ -439,7 +440,15 @@ async function createGitHubPRWithCLI(
     const tempFilePath = path.join(process.cwd(), "PR_BODY.md");
     await fs.writeFile(tempFilePath, prDescription);
 
-    const ghCommand = `gh pr create --title "${prTitle}" --body-file "${tempFilePath}" --base "${baseBranch}" --head "${currentBranch}"`;
+    let ghCommand = `gh pr create --title "${prTitle}" --body-file "${tempFilePath}" --base "${baseBranch}" --head "${currentBranch}"`;
+
+    if (argv.self) {
+      ghCommand += ' --assignee "@me"';
+    }
+
+    if (argv.draft) {
+      ghCommand += " --draft";
+    }
     const ghOutput = await executeCommand(ghCommand, "Creating GitHub PR...");
     console.log("GitHub CLI output:\n", ghOutput);
 
@@ -774,6 +783,14 @@ async function main() {
         type: "boolean",
         description: "Create GitHub PR using GitHub CLI",
       })
+      .option("self", {
+        type: "boolean",
+        description: "Assign the PR to yourself",
+      })
+      .option("draft", {
+        type: "boolean",
+        description: "Create the PR as a draft",
+      })
       .help().argv;
 
     let commitMessages = await getCommitHistory();
@@ -1029,7 +1046,8 @@ async function main() {
         prDescription,
         prTitle,
         currentBranch,
-        baseBranch
+        baseBranch,
+        argv
       );
     }
   } catch (error) {
