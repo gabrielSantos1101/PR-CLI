@@ -53,6 +53,14 @@ pr-cli
   ```bash
   pr-cli --gh
   ```
+- `--self`: Assign the PR to yourself.
+  ```bash
+  pr-cli --gh --self
+  ```
+- `--draft`: Create the PR as a draft.
+  ```bash
+  pr-cli --gh --draft
+  ```
 
 ### Setup Google Gemini API Key
 
