@@ -804,7 +804,7 @@ async function main() {
           false
         );
 
-        let baseBranch = "main"; // Default base branch
+        let baseBranch = "main";
         try {
           const remoteHead = await executeCommand(
             "git symbolic-ref refs/remotes/origin/HEAD",
