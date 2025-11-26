@@ -380,26 +380,29 @@ async function createGitHubPRWithCLI(
   prTitle,
   currentBranch,
   baseBranch,
-  argv
+  argv,
+  allowExistingPR = false
 ) {
   try {
     await executeCommand("gh --version", "Checking for GitHub CLI...");
     console.log("GitHub CLI detected.");
 
-    try {
-      const existingPr = await executeCommand(
-        `gh pr view ${currentBranch} --json url --jq .url`,
-        `Checking for existing PR for branch "${currentBranch}"...`,
-        false
-      );
-      if (existingPr) {
-        console.log(
-          `A pull request for branch "${currentBranch}" already exists: ${existingPr}`
+    if (!allowExistingPR) {
+      try {
+        const existingPr = await executeCommand(
+          `gh pr view ${currentBranch} --json url --jq .url`,
+          `Checking for existing PR for branch "${currentBranch}"...`,
+          false
         );
-        console.log("Exiting without creating a new PR.");
-        return;
-      }
-    } catch (error) {}
+        if (existingPr) {
+          console.log(
+            `A pull request for branch "${currentBranch}" already exists: ${existingPr}`
+          );
+          console.log("Exiting without creating a new PR.");
+          return;
+        }
+      } catch (error) {}
+    }
 
     try {
       await executeCommand(
@@ -730,6 +733,283 @@ async function checkForUpdates() {
   }
 }
 
+async function getPRContent(argv) {
+  let commitMessages = await getCommitHistory();
+
+  if (commitMessages.length === 0) {
+    console.log("No new local commits found since the last push to origin.");
+    try {
+      const currentBranch = await executeCommand(
+        "git rev-parse --abbrev-ref HEAD",
+        "Getting current branch...",
+        false
+      );
+
+      let baseBranch = "main";
+      try {
+        const remoteHead = await executeCommand(
+          "git symbolic-ref refs/remotes/origin/HEAD",
+          "Getting remote default branch...",
+        );
+        baseBranch = remoteHead.split("/").pop();
+      } catch (e) {
+        console.warn(
+          "Could not determine remote default branch, falling back to 'main'."
+        );
+      }
+
+      const commitCountStr = await executeCommand(
+        `git rev-list --count ${baseBranch}..HEAD`,
+        `Counting commits on branch "${currentBranch}" against "${baseBranch}"...`,
+        false
+      );
+      const commitCount = parseInt(commitCountStr, 10);
+
+      if (commitCount > 0) {
+        const { confirmCommits } = await inquirer.default.prompt([
+          {
+            type: "confirm",
+            name: "confirmCommits",
+            message: `Found ${commitCount} commits on branch "${currentBranch}". Do you want to use them to create the PR?`,
+            default: true,
+          },
+        ]);
+
+        if (confirmCommits) {
+          commitMessages = await getCommitHistory(commitCount);
+        } else {
+          console.log("Exiting without generating PR description.");
+          return null;
+        }
+      } else {
+        console.log(
+          `No commits found on this branch compared to ${baseBranch}. Exiting.`
+        );
+        return null;
+      }
+    } catch (error) {
+      console.log(
+        "Could not automatically count commits. Falling back to manual input."
+      );
+      const { commitCount } = await inquirer.default.prompt([
+        {
+          type: "number",
+          name: "commitCount",
+          message:
+            "How many commits from HEAD should be read for history? (Enter 0 to exit)",
+          default: 5,
+          validate: (input) =>
+            input >= 0 || "Please enter a non-negative number.",
+        },
+      ]);
+
+      if (commitCount === 0) {
+        console.log("Exiting without generating PR description.");
+        return null;
+      }
+      commitMessages = await getCommitHistory(commitCount);
+    }
+
+    if (commitMessages.length === 0) {
+      console.log("No commits found. Exiting.");
+      return null;
+    }
+  }
+
+  const { devDescription } = await inquirer.default.prompt([
+    {
+      type: "input",
+      name: "devDescription",
+      message: "Please provide a brief description of what you did:",
+      default: "",
+    },
+  ]);
+
+  const categorized = categorizeCommits(commitMessages);
+
+  const templates = await getPRTemplates();
+  let templateContent = null;
+  if (templates.length > 0) {
+    templateContent = await chooseTemplate(templates);
+  }
+
+  let templateLanguage = "en";
+
+  if (templateContent) {
+    const { selectedLanguage } = await inquirer.default.prompt([
+      {
+        type: "list",
+        name: "selectedLanguage",
+        message: "Select the language of the PR template:",
+        choices: [
+          { name: "English", value: "en" },
+          { name: "Portuguese", value: "pt" },
+          { name: "Spanish", value: "es" },
+          { name: "French", value: "fr" },
+          { name: "German", value: "de" },
+          { name: "Italian", value: "it" },
+          { name: "Japanese", value: "ja" },
+          { name: "Chinese", value: "zh" },
+        ],
+        default: "en",
+      },
+    ]);
+    templateLanguage = selectedLanguage;
+  }
+
+  let prDescription;
+  if (templateContent) {
+    const aiGeneratedContent = await generateAIContent(
+      commitMessages,
+      templateContent,
+      templateLanguage,
+      devDescription
+    );
+    prDescription = aiGeneratedContent;
+    if (
+      prDescription.startsWith("<!-- Error: AI content generation failed.")
+    ) {
+      console.warn(
+        "AI generation failed, falling back to categorized commit description."
+      );
+      prDescription = generatePRDescription(categorized, templateContent);
+    }
+  } else {
+    prDescription = generatePRDescription(categorized, templateContent);
+  }
+
+  console.log("\n--- Generated PR Description ---\n");
+  console.log(prDescription);
+  console.log("\n--------------------------------\n");
+
+  if (argv.copy) {
+    try {
+      await clipboardy.write(prDescription);
+      console.log("PR description copied to clipboard!");
+    } catch (error) {
+      console.error("Failed to copy to clipboard:", error.message);
+    }
+  }
+
+  const currentBranch = await executeCommand(
+    "git rev-parse --abbrev-ref HEAD",
+    "Getting current branch...",
+    false
+  );
+  let prTitle = currentBranch;
+
+  if (currentBranch === "main" || currentBranch === "master") {
+    const { createNewBranch } = await inquirer.default.prompt([
+      {
+        type: "confirm",
+        name: "createNewBranch",
+        message: `You are on the "${currentBranch}" branch. Do you want to create a new branch for your PR?`,
+        default: true,
+      },
+    ]);
+
+    if (createNewBranch) {
+      const { generateWithAI } = await inquirer.default.prompt([
+        {
+          type: "confirm",
+          name: "generateWithAI",
+          message: "Do you want to generate the branch name using AI?",
+          default: true,
+        },
+      ]);
+
+      let newBranchName;
+      if (generateWithAI) {
+        newBranchName = await generateAIBranchName(commitMessages);
+        if (!newBranchName) {
+          console.warn(
+            "AI failed to generate a branch name. Falling back to manual input with AI-suggested type."
+          );
+          const suggestedType = await generateAIBranchType(commitMessages);
+          const { manualDescription } = await inquirer.default.prompt([
+            {
+              type: "input",
+              name: "manualDescription",
+              message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
+              validate: (input) =>
+                input.trim().length > 0 || "Branch description cannot be empty.",
+              filter: (input) =>
+                input
+                  .toLowerCase()
+                  .replace(/\s+/g, "-")
+                  .replace(/[^a-z0-9-]/g, ""),
+            },
+          ]);
+          newBranchName = `${suggestedType}/${manualDescription}`;
+        } else {
+          console.log(`AI suggested branch name: ${newBranchName}`);
+          const { confirmAIBranchName } = await inquirer.default.prompt([
+            {
+              type: "confirm",
+              name: "confirmAIBranchName",
+              message: `Confirm AI-generated branch name: "${newBranchName}"?`,
+              default: true,
+            },
+          ]);
+          if (!confirmAIBranchName) {
+            const suggestedType = await generateAIBranchType(commitMessages);
+            const { manualDescription } = await inquirer.default.prompt([
+              {
+                type: "input",
+                name: "manualDescription",
+                message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
+                validate: (input) =>
+                  input.trim().length > 0 || "Branch description cannot be empty.",
+                filter: (input) =>
+                  input
+                    .toLowerCase()
+                    .replace(/\s+/g, "-")
+                    .replace(/[^a-z0-9-]/g, ""),
+              },
+            ]);
+            newBranchName = `${suggestedType}/${manualDescription}`;
+          }
+        }
+      } else {
+        console.log(
+          "Skipping AI branch name generation. Suggesting type based on commits."
+        );
+        const suggestedType = await generateAIBranchType(commitMessages);
+        const { manualDescription } = await inquirer.default.prompt([
+          {
+            type: "input",
+            name: "manualDescription",
+            message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
+            validate: (input) =>
+              input.trim().length > 0 || "Branch description cannot be empty.",
+            filter: (input) =>
+              input
+                .toLowerCase()
+                .replace(/\s+/g, "-")
+                .replace(/[^a-z0-9-]/g, ""),
+          },
+        ]);
+        newBranchName = `${suggestedType}/${manualDescription}`;
+      }
+
+      try {
+        await executeCommand(`git checkout -b ${newBranchName}`);
+        console.log(`Switched to new branch: ${newBranchName}`);
+        prTitle = newBranchName;
+      } catch (error) {
+        console.error(
+          `Failed to create and switch to new branch: ${error.message}`
+        );
+        return null;
+      }
+    } else {
+      console.log("Proceeding with PR creation on the current branch.");
+    }
+  }
+
+  return { prDescription, prTitle, currentBranch };
+}
+
 async function main() {
   try {
     const updateAvailable = await checkForUpdates();
@@ -791,167 +1071,21 @@ async function main() {
         type: "boolean",
         description: "Create the PR as a draft",
       })
+      .option("refill", {
+        alias: "r",
+        type: "boolean",
+        description: "Refill the PR template even if a PR already exists",
+      })
       .help().argv;
 
-    let commitMessages = await getCommitHistory();
+    let prContent = await getPRContent(argv);
 
-    if (commitMessages.length === 0) {
-      console.log("No new local commits found since the last push to origin.");
-      try {
-        const currentBranch = await executeCommand(
-          "git rev-parse --abbrev-ref HEAD",
-          "Getting current branch...",
-          false
-        );
-
-        let baseBranch = "main";
-        try {
-          const remoteHead = await executeCommand(
-            "git symbolic-ref refs/remotes/origin/HEAD",
-            "Getting remote default branch...",
-            false
-          );
-          baseBranch = remoteHead.split("/").pop();
-        } catch (e) {
-          console.warn(
-            "Could not determine remote default branch, falling back to 'main'."
-          );
-        }
-
-        const commitCountStr = await executeCommand(
-          `git rev-list --count ${baseBranch}..HEAD`,
-          `Counting commits on branch "${currentBranch}" against "${baseBranch}"...`,
-          false
-        );
-        const commitCount = parseInt(commitCountStr, 10);
-
-        if (commitCount > 0) {
-          const { confirmCommits } = await inquirer.default.prompt([
-            {
-              type: "confirm",
-              name: "confirmCommits",
-              message: `Found ${commitCount} commits on branch "${currentBranch}". Do you want to use them to create the PR?`,
-              default: true,
-            },
-          ]);
-
-          if (confirmCommits) {
-            commitMessages = await getCommitHistory(commitCount);
-          } else {
-            console.log("Exiting without generating PR description.");
-            return;
-          }
-        } else {
-          console.log(
-            `No commits found on this branch compared to ${baseBranch}. Exiting.`
-          );
-          return;
-        }
-      } catch (error) {
-        console.log(
-          "Could not automatically count commits. Falling back to manual input."
-        );
-        const { commitCount } = await inquirer.default.prompt([
-          {
-            type: "number",
-            name: "commitCount",
-            message:
-              "How many commits from HEAD should be read for history? (Enter 0 to exit)",
-            default: 5,
-            validate: (input) =>
-              input >= 0 || "Please enter a non-negative number.",
-          },
-        ]);
-
-        if (commitCount === 0) {
-          console.log("Exiting without generating PR description.");
-          return;
-        }
-        commitMessages = await getCommitHistory(commitCount);
-      }
-
-      if (commitMessages.length === 0) {
-        console.log("No commits found. Exiting.");
-        return;
-      }
+    if (!prContent) {
+      return;
     }
 
-    const { devDescription } = await inquirer.default.prompt([
-      {
-        type: "input",
-        name: "devDescription",
-        message: "Please provide a brief description of what you did:",
-        default: "",
-      },
-    ]);
-
-    const categorized = categorizeCommits(commitMessages);
-
-    const templates = await getPRTemplates();
-    let templateContent = null;
-    if (templates.length > 0) {
-      templateContent = await chooseTemplate(templates);
-    }
-
-    let templateLanguage = "en";
-
-    if (templateContent) {
-      const { selectedLanguage } = await inquirer.default.prompt([
-        {
-          type: "list",
-          name: "selectedLanguage",
-          message: "Select the language of the PR template:",
-          choices: [
-            { name: "English", value: "en" },
-            { name: "Portuguese", value: "pt" },
-            { name: "Spanish", value: "es" },
-            { name: "French", value: "fr" },
-            { name: "German", value: "de" },
-            { name: "Italian", value: "it" },
-            { name: "Japanese", value: "ja" },
-            { name: "Chinese", value: "zh" },
-          ],
-          default: "en",
-        },
-      ]);
-      templateLanguage = selectedLanguage;
-    }
-
-    let prDescription;
-    if (templateContent) {
-      const aiGeneratedContent = await generateAIContent(
-        commitMessages,
-        templateContent,
-        templateLanguage,
-        devDescription
-      );
-      prDescription = aiGeneratedContent;
-      if (
-        prDescription.startsWith("<!-- Error: AI content generation failed.")
-      ) {
-        console.warn(
-          "AI generation failed, falling back to categorized commit description."
-        );
-        prDescription = generatePRDescription(categorized, templateContent);
-      }
-    } else {
-      prDescription = generatePRDescription(categorized, templateContent);
-    }
-
-    console.log("\n--- Generated PR Description ---\n");
-    console.log(prDescription);
-    console.log("\n--------------------------------\n");
-
-    if (argv.copy) {
-      try {
-        await clipboardy.write(prDescription);
-        console.log("PR description copied to clipboard!");
-      } catch (error) {
-        console.error("Failed to copy to clipboard:", error.message);
-      }
-    }
-
-    let prTitle;
+    const { prDescription, prTitle, currentBranch } = prContent;
+    const baseBranch = "main"; // Assuming main as default base branch
 
     if (argv.github) {
       const repoUrl = await executeCommand(
@@ -959,13 +1093,6 @@ async function main() {
         "Getting repository URL...",
         false
       );
-      const currentBranch = await executeCommand(
-        "git rev-parse --abbrev-ref HEAD",
-        "Getting current branch...",
-        false
-      );
-      const baseBranch = "main";
-      prTitle = currentBranch;
       await openGitHubPRInBrowser(
         prDescription,
         prTitle,
@@ -974,136 +1101,13 @@ async function main() {
         baseBranch
       );
     } else if (argv.gh) {
-      let currentBranch = await executeCommand(
-        "git rev-parse --abbrev-ref HEAD",
-        "Getting current branch...",
-        false
-      );
-      const baseBranch = "main";
-
-      if (currentBranch === "main" || currentBranch === "master") {
-        const { createNewBranch } = await inquirer.default.prompt([
-          {
-            type: "confirm",
-            name: "createNewBranch",
-            message: `You are on the "${currentBranch}" branch. Do you want to create a new branch for your PR?`,
-            default: true,
-          },
-        ]);
-
-        if (createNewBranch) {
-          const { generateWithAI } = await inquirer.default.prompt([
-            {
-              type: "confirm",
-              name: "generateWithAI",
-              message: "Do you want to generate the branch name using AI?",
-              default: true,
-            },
-          ]);
-
-          let newBranchName;
-          if (generateWithAI) {
-            newBranchName = await generateAIBranchName(commitMessages);
-            if (!newBranchName) {
-              console.warn(
-                "AI failed to generate a branch name. Falling back to manual input with AI-suggested type."
-              );
-              const suggestedType = await generateAIBranchType(commitMessages);
-              const { manualDescription } = await inquirer.default.prompt([
-                {
-                  type: "input",
-                  name: "manualDescription",
-                  message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
-                  validate: (input) =>
-                    input.trim().length > 0 ||
-                    "Branch description cannot be empty.",
-                  filter: (input) =>
-                    input
-                      .toLowerCase()
-                      .replace(/\s+/g, "-")
-                      .replace(/[^a-z0-9-]/g, ""),
-                },
-              ]);
-              newBranchName = `${suggestedType}/${manualDescription}`;
-            } else {
-              console.log(`AI suggested branch name: ${newBranchName}`);
-              const { confirmAIBranchName } = await inquirer.default.prompt([
-                {
-                  type: "confirm",
-                  name: "confirmAIBranchName",
-                  message: `Confirm AI-generated branch name: "${newBranchName}"?`,
-                  default: true,
-                },
-              ]);
-              if (!confirmAIBranchName) {
-                const suggestedType = await generateAIBranchType(
-                  commitMessages
-                );
-                const { manualDescription } = await inquirer.default.prompt([
-                  {
-                    type: "input",
-                    name: "manualDescription",
-                    message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
-                    validate: (input) =>
-                      input.trim().length > 0 ||
-                      "Branch description cannot be empty.",
-                    filter: (input) =>
-                      input
-                        .toLowerCase()
-                        .replace(/\s+/g, "-")
-                        .replace(/[^a-z0-9-]/g, ""),
-                  },
-                ]);
-                newBranchName = `${suggestedType}/${manualDescription}`;
-              }
-            }
-          } else {
-            console.log(
-              "Skipping AI branch name generation. Suggesting type based on commits."
-            );
-            const suggestedType = await generateAIBranchType(commitMessages);
-            const { manualDescription } = await inquirer.default.prompt([
-              {
-                type: "input",
-                name: "manualDescription",
-                message: `Enter a short description for the new branch (e.g., 'add user auth', spaces will be converted to hyphens). Suggested type: ${suggestedType}/`,
-                validate: (input) =>
-                  input.trim().length > 0 ||
-                  "Branch description cannot be empty.",
-                filter: (input) =>
-                  input
-                    .toLowerCase()
-                    .replace(/\s+/g, "-")
-                    .replace(/[^a-z0-9-]/g, ""),
-              },
-            ]);
-            newBranchName = `${suggestedType}/${manualDescription}`;
-          }
-
-          try {
-            await executeCommand(`git checkout -b ${newBranchName}`);
-            console.log(`Switched to new branch: ${newBranchName}`);
-            currentBranch = newBranchName;
-            prTitle = newBranchName;
-          } catch (error) {
-            console.error(
-              `Failed to create and switch to new branch: ${error.message}`
-            );
-            return;
-          }
-        } else {
-          console.log("Proceeding with PR creation on the current branch.");
-          prTitle = currentBranch;
-        }
-      } else {
-        prTitle = currentBranch;
-      }
       await createGitHubPRWithCLI(
         prDescription,
         prTitle,
         currentBranch,
         baseBranch,
-        argv
+        argv,
+        argv.refill
       );
     }
   } catch (error) {
