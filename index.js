@@ -396,7 +396,34 @@ async function createGitHubPRWithCLI(
         console.log(
           `A pull request for branch "${currentBranch}" already exists: ${existingPr}`
         );
-        console.log("Exiting without creating a new PR.");
+
+        const { overwritePr } = await inquirer.default.prompt([
+          {
+            type: "confirm",
+            name: "overwritePr",
+            message:
+              "Já existe um PR para esta branch. Deseja sobrescrever a descrição com o conteúdo gerado agora?",
+            default: true,
+          },
+        ]);
+
+        if (!overwritePr) {
+          console.log("Mantendo a descrição atual do PR. Encerrando.");
+          return;
+        }
+
+        const tempFilePath = path.join(process.cwd(), "PR_BODY.md");
+        await fs.writeFile(tempFilePath, prDescription);
+
+        const editCmd = `gh pr edit ${currentBranch} --body-file "${tempFilePath}"`;
+        const ghEditOutput = await executeCommand(
+          editCmd,
+          "Atualizando a descrição do PR..."
+        );
+        console.log("GitHub CLI output:\n", ghEditOutput);
+
+        await fs.unlink(tempFilePath);
+        console.log("Descrição do Pull Request atualizada com sucesso.");
         return;
       }
     } catch (error) {}
