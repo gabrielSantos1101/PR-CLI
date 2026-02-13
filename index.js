@@ -396,7 +396,43 @@ async function createGitHubPRWithCLI(
         console.log(
           `A pull request for branch "${currentBranch}" already exists: ${existingPr}`
         );
-        console.log("Exiting without creating a new PR.");
+
+        let overwritePr = true;
+
+        if (!argv.refill) {
+          const promptResult = await inquirer.default.prompt([
+            {
+              type: "confirm",
+              name: "overwritePr",
+              message:
+                "A PR for this branch already exists. Do you want to overwrite its description with the newly generated content?",
+              default: true,
+            },
+          ]);
+          overwritePr = promptResult.overwritePr;
+        } else {
+          console.log(
+            "--refill flag detected; overwriting existing PR description without confirmation."
+          );
+        }
+
+        if (!overwritePr) {
+          console.log("Keeping the current PR description. Exiting.");
+          return;
+        }
+
+        const tempFilePath = path.join(process.cwd(), "PR_BODY.md");
+        await fs.writeFile(tempFilePath, prDescription);
+
+        const editCmd = `gh pr edit ${currentBranch} --body-file "${tempFilePath}"`;
+        const ghEditOutput = await executeCommand(
+          editCmd,
+          "Updating PR description..."
+        );
+        console.log("GitHub CLI output:\n", ghEditOutput);
+
+        await fs.unlink(tempFilePath);
+        console.log("Pull Request description updated successfully.");
         return;
       }
     } catch (error) {}
@@ -782,6 +818,11 @@ async function main() {
       .option("gh", {
         type: "boolean",
         description: "Create GitHub PR using GitHub CLI",
+      })
+      .option("refill", {
+        type: "boolean",
+        description:
+          "When a PR already exists for the branch, overwrite its description without asking for confirmation",
       })
       .option("self", {
         type: "boolean",
