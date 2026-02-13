@@ -53,6 +53,10 @@ pr-cli
   ```bash
   pr-cli --gh
   ```
+- `--refill`: When a PR already exists for the current branch, overwrite its description with the newly generated content **without** asking for confirmation (useful in CI or scripted runs). The overwrite prompt is always shown in English when this flag is not used.
+  ```bash
+  pr-cli --gh --refill
+  ```
 - `--self`: Assign the PR to yourself.
   ```bash
   pr-cli --gh --self
