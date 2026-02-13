@@ -1,10 +1,10 @@
 {
   "name": "pr-cli-generator",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "A simple CLI tool to generate a Git Pull Request (PR) description by analyzing your local Git commit history.",
   "main": "dist/index.js",
   "bin": {
-    "pr-cli": "./dist/index.js"
+    "pr-cli": "dist/index.js"
   },
   "scripts": {
     "build": "rollup -c rollup.config.mjs",
