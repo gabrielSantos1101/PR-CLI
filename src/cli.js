@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import inquirer from "inquirer";
@@ -27,9 +25,6 @@ import {
   createGitHubPRWithCLI,
 } from "./utils/github.js";
 
-/**
- * Main function to run the CLI tool.
- */
 async function main() {
   try {
     const updateAvailable = await checkForUpdates();

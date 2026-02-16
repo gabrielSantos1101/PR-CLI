@@ -4,15 +4,47 @@ import json from "@rollup/plugin-json";
 import terser from "@rollup/plugin-terser";
 
 export default {
-  input: "index.js",
+  input: "src/cli.js",
   output: {
-    dir: "dist",
-    format: "cjs",
-    compact: true,
+    file: "dist/index.js",
+    format: "es",
+    banner: "#!/usr/bin/env node",
   },
-  treeshake: {
-    moduleSideEffects: false,
-    propertyReadSideEffects: false,
-  },
-  plugins: [resolve(), commonjs(), json(), terser()],
+  external: [
+    "child_process",
+    "fs",
+    "fs/promises",
+    "path",
+    "os",
+    "module",
+    "url",
+    /@google\/generative-ai/,
+    /@inquirer/,
+    /^clipboardy/,
+    /^inquirer/,
+    /^ora/,
+    /^yargs/,
+  ],
+  plugins: [
+    resolve({
+      preferBuiltins: true,
+    }),
+    commonjs(),
+    json(),
+    terser({
+      ecma: 2020,
+      module: true,
+      compress: {
+        passes: 2,
+        unsafe: false,
+      },
+      mangle: {
+        keep_classnames: true,
+        keep_fnames: false,
+      },
+      format: {
+        comments: false,
+      },
+    }),
+  ],
 };
