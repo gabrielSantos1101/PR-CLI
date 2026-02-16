@@ -83,6 +83,296 @@ async function executeCommand(
 }
 
 /**
+ * Truncates a diff to a maximum size while preserving structure.
+ * Keeps file headers and a sample of changes from each file.
+ * @param {string} diffContent The diff content to truncate.
+ * @param {number} maxSize Maximum size in characters.
+ * @returns {{content: string, wasTruncated: boolean}} Truncated diff and truncation flag.
+ */
+function truncateDiff(diffContent, maxSize = 10000) {
+  if (diffContent.length <= maxSize) {
+    return { content: diffContent, wasTruncated: false };
+  }
+
+  const lines = diffContent.split('\n');
+  const result = [];
+  let currentSize = 0;
+  let filesProcessed = 0;
+  let currentFile = null;
+  let linesInCurrentFile = 0;
+  const maxLinesPerFile = 40;
+
+  for (const line of lines) {
+    if (line.startsWith('diff --git') || line.startsWith('index ') || 
+        line.startsWith('---') || line.startsWith('+++')) {
+      if (line.startsWith('diff --git')) {
+        if (currentFile && linesInCurrentFile > maxLinesPerFile) {
+          result.push(`... (${linesInCurrentFile - maxLinesPerFile} more lines omitted)`);
+        }
+        filesProcessed++;
+        currentFile = line;
+        linesInCurrentFile = 0;
+      }
+      result.push(line);
+      currentSize += line.length + 1;
+      continue;
+    }
+
+    if (currentSize + line.length > maxSize) {
+      result.push(`\n... [Diff truncated: ${diffContent.length - currentSize} characters omitted from ${lines.length - result.length} remaining lines]`);
+      return { content: result.join('\n'), wasTruncated: true };
+    }
+
+    linesInCurrentFile++;
+    if (linesInCurrentFile <= maxLinesPerFile) {
+      result.push(line);
+      currentSize += line.length + 1;
+    }
+  }
+
+  if (linesInCurrentFile > maxLinesPerFile) {
+    result.push(`... (${linesInCurrentFile - maxLinesPerFile} more lines omitted)`);
+  }
+
+  return { content: result.join('\n'), wasTruncated: false };
+}
+
+/**
+ * Validates if a string is a valid Git commit hash format.
+ * Accepts both short (7+ chars) and full (40 chars) SHA-1 hashes.
+ * @param {string} hash The commit hash to validate.
+ * @returns {boolean} True if the hash format is valid, false otherwise.
+ */
+function isValidCommitHash(hash) {
+  if (typeof hash !== 'string') {
+    return false;
+  }
+  return /^[0-9a-f]{7,40}$/i.test(hash.trim());
+}
+
+/**
+ * Filters binary file content from git diff output.
+ * Detects binary file markers and removes binary data while preserving the markers.
+ * @param {string} diffContent The raw diff content from git.
+ * @returns {string} The filtered diff content with binary data removed.
+ */
+function filterBinaryFiles(diffContent) {
+  const lines = diffContent.split('\n');
+  const filtered = [];
+  let skipBinary = false;
+  
+  for (const line of lines) {
+    if (line.startsWith('Binary files')) {
+      filtered.push(line);
+      skipBinary = true;
+      continue;
+    }
+    
+    if (line.startsWith('diff --git')) {
+      skipBinary = false;
+    }
+    
+    if (!skipBinary) {
+      filtered.push(line);
+    }
+  }
+  
+  return filtered.join('\n');
+}
+
+/**
+ * Formats commit diffs for AI prompt inclusion.
+ * Creates markdown-formatted code blocks with commit messages, hashes, and truncation notices.
+ * @param {Array<{hash: string, content: string, truncated: boolean}>} diffs Array of diff objects.
+ * @param {string[]} commitMessages Array of commit messages corresponding to the diffs.
+ * @returns {string} Formatted string with diffs in markdown code blocks.
+ */
+function formatDiffsForAI(diffs, commitMessages) {
+  let formatted = "\n\n=== CODE CHANGES ===\n\n";
+  
+  diffs.forEach((diff, index) => {
+    formatted += `Commit ${index + 1}: ${commitMessages[index]}\n`;
+    formatted += `Hash: ${diff.hash}\n`;
+    formatted += `\`\`\`diff\n${diff.content}\n\`\`\`\n\n`;
+    
+    if (diff.truncated) {
+      formatted += "[Note: This diff was truncated due to size limits]\n\n";
+    }
+  });
+  
+  return formatted;
+}
+
+/**
+ * Checks if a commit is a merge commit by examining its parent count.
+ * @param {string} commitHash The commit hash to check.
+ * @returns {Promise<boolean>} True if the commit is a merge commit (has 2+ parents), false otherwise.
+ */
+async function isMergeCommit(commitHash) {
+  if (!isValidCommitHash(commitHash)) {
+    console.warn(`Invalid commit hash format in isMergeCommit: "${commitHash}"`);
+    return false;
+  }
+  
+  try {
+    const parents = await executeCommand(
+      `git rev-list --parents -n 1 ${commitHash}`,
+      "",
+      false
+    );
+    return parents.trim().split(/\s+/).length > 2;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Fetches commit diffs for an array of commit hashes.
+ * Automatically optimizes diff sizes to prevent token limit issues.
+ * @param {string[]} commitHashes Array of commit SHA hashes.
+ * @param {Object} options Configuration object.
+ * @param {boolean} [options.includeMergeDiffs=false] Whether to include merge commit diffs.
+ * @returns {Promise<Array<{hash: string, content: string, truncated: boolean, error: string|null}>>} Array of DiffResult objects.
+ */
+async function getCommitDiffs(commitHashes, options = {}) {
+  const { includeMergeDiffs = false } = options;
+  
+  if (!Array.isArray(commitHashes)) {
+    console.error("Invalid input: commitHashes must be an array");
+    return [];
+  }
+  
+  if (commitHashes.length === 0) {
+    console.warn("No commit hashes provided to fetch diffs");
+    return [];
+  }
+  
+  const spinner = ora("Fetching commit diffs...").start();
+  
+  const diffs = [];
+  let totalSize = 0;
+  let validCount = 0;
+  let skippedCount = 0;
+  let mergeCommitsExcluded = 0;
+  let binaryFilesFiltered = 0;
+  let fetchFailures = 0;
+  const totalCommits = commitHashes.length;
+  
+  for (let i = 0; i < commitHashes.length; i++) {
+    const hash = commitHashes[i];
+    
+    spinner.text = `Fetching commit diffs... (${i + 1}/${totalCommits})`;
+    
+    if (!isValidCommitHash(hash)) {
+      const errorMsg = `Invalid commit hash format: "${hash}". Expected hexadecimal string (7-40 characters).`;
+      console.warn(`⚠ Skipping invalid commit hash: ${hash}`);
+      skippedCount++;
+      fetchFailures++;
+      diffs.push({
+        hash: hash || '[empty]',
+        content: "[Invalid commit hash - skipped]",
+        truncated: false,
+        error: errorMsg
+      });
+      continue;
+    }
+
+    try {
+      const isMerge = await isMergeCommit(hash);
+      if (isMerge && !includeMergeDiffs) {
+        mergeCommitsExcluded++;
+        diffs.push({
+          hash,
+          content: "[Merge commit - diff excluded]",
+          truncated: false,
+          error: null
+        });
+        validCount++;
+        continue;
+      }
+      
+      const diffCommand = isMerge 
+        ? `git show --format="" ${hash}`
+        : `git show --format="" --no-color ${hash}`;
+      
+      let diffContent = await executeCommand(diffCommand, "", false);
+      
+      const hasBinaryFiles = diffContent.includes('Binary files');
+      if (hasBinaryFiles) {
+        binaryFilesFiltered++;
+      }
+      
+      diffContent = filterBinaryFiles(diffContent);
+      
+      let finalContent = diffContent;
+      let wasTruncated = false;
+      const MAX_DIFF_SIZE = 8000;
+      
+      if (diffContent.length > MAX_DIFF_SIZE) {
+        const result = truncateDiff(diffContent, MAX_DIFF_SIZE);
+        finalContent = result.content;
+        wasTruncated = result.wasTruncated;
+      }
+      
+      totalSize += finalContent.length;
+      validCount++;
+      diffs.push({ 
+        hash, 
+        content: finalContent, 
+        truncated: wasTruncated,
+        error: null
+      });
+      
+    } catch (error) {
+      const errorMsg = `Failed to fetch diff for commit ${hash}: ${error.message}`;
+      console.warn(`⚠ ${errorMsg}`);
+      skippedCount++;
+      fetchFailures++;
+      diffs.push({ 
+        hash, 
+        content: "[Error fetching diff]", 
+        truncated: false,
+        error: error.message
+      });
+    }
+  }
+  
+  if (skippedCount > 0) {
+    spinner.warn(`Fetched diffs for ${validCount}/${diffs.length} commits (${totalSize} characters). ${skippedCount} commit(s) skipped due to errors.`);
+  } else {
+    spinner.succeed(`Fetched diffs for ${diffs.length} commits (${totalSize} characters)`);
+  }
+  
+  const warnings = [];
+  
+  if (mergeCommitsExcluded > 0) {
+    warnings.push(`⚠ ${mergeCommitsExcluded} merge commit(s) excluded. Use --rmd flag to include merge commit diffs.`);
+  }
+  
+  if (binaryFilesFiltered > 0) {
+    warnings.push(`⚠ Binary files detected in ${binaryFilesFiltered} commit(s) and filtered from diffs.`);
+  }
+  
+  const LARGE_DIFF_THRESHOLD = 50000;
+  if (totalSize > LARGE_DIFF_THRESHOLD) {
+    warnings.push(`⚠ Large diff detected: Total size is ${totalSize} characters (threshold: ${LARGE_DIFF_THRESHOLD}).`);
+    warnings.push(`   This may exceed API token limits. Consider reducing commits or using --read without large files.`);
+  }
+  
+  if (fetchFailures > 0) {
+    warnings.push(`⚠ ${fetchFailures} commit(s) failed to fetch. Check warnings above for details.`);
+  }
+  
+  if (warnings.length > 0) {
+    console.log('\n--- Edge Case Warnings ---');
+    warnings.forEach(warning => console.warn(warning));
+    console.log('');
+  }
+  
+  return diffs;
+}
+
+/**
  * Gets the Git commit history from the current branch up to the last push.
  * It compares the current branch's HEAD with its upstream branch on origin.
  * @returns {Promise<string[]>} An array of commit messages. Returns an empty array if no commits are found or an error occurs.
@@ -92,18 +382,36 @@ async function executeCommand(
  * If `count` is provided, it fetches the last `count` commits from HEAD.
  * Otherwise, it fetches commits from the current branch's HEAD up to the last push to its upstream.
  * @param {number} [count] The number of commits to retrieve from HEAD.
- * @returns {Promise<string[]>} An array of commit messages. Returns an empty array if no commits are found or an error occurs.
+ * @param {Object} [options={}] Configuration options.
+ * @param {boolean} [options.readDiffs=false] Whether to fetch commit diffs.
+ * @param {boolean} [options.includeMergeDiffs=false] Whether to include merge commit diffs.
+ * @returns {Promise<string[]|{messages: string[], hashes: string[], count: number}>} 
+ *   Returns an array of commit messages when readDiffs is false (backward compatible).
+ *   Returns an object with messages, hashes, and count when readDiffs is true.
+ *   Returns an empty array or empty object if no commits are found or an error occurs.
  */
-async function getCommitHistory(count) {
+async function getCommitHistory(count, options = {}) {
+  const { readDiffs = false, includeMergeDiffs = false } = options;
   const spinner = ora("Fetching commit history...").start();
   try {
     let commitLogs;
+    let commitHashes = [];
+
     if (count) {
       commitLogs = await executeCommand(
         `git log -n ${count} --pretty=format:"%s"`,
         "Fetching specific number of commits...",
         false
       );
+
+      if (readDiffs) {
+        const hashesOutput = await executeCommand(
+          `git log -n ${count} --format=%H`,
+          "Fetching commit hashes...",
+          false
+        );
+        commitHashes = hashesOutput.split("\n").filter(Boolean);
+      }
     } else {
       const currentBranch = await executeCommand(
         "git rev-parse --abbrev-ref HEAD",
@@ -120,17 +428,38 @@ async function getCommitHistory(count) {
         "Fetching commits since last push...",
         false
       );
+
+      if (readDiffs) {
+        const hashesOutput = await executeCommand(
+          `git log ${lastPushCommit}..HEAD --format=%H`,
+          "Fetching commit hashes...",
+          false
+        );
+        commitHashes = hashesOutput.split("\n").filter(Boolean);
+      }
     }
+
     spinner.succeed("Commit history fetched.");
-    return commitLogs.split("\n").filter(Boolean);
+    const messages = commitLogs.split("\n").filter(Boolean);
+
+    if (readDiffs) {
+      return {
+        messages,
+        hashes: commitHashes,
+        count: messages.length
+      };
+    }
+
+    return messages;
   } catch (error) {
     spinner.fail("Failed to get Git commit history.");
     console.error(
       "Failed to get Git commit history. Ensure you are in a Git repository and have pushed to origin."
     );
-    return [];
+    return readDiffs ? { messages: [], hashes: [], count: 0 } : [];
   }
 }
+
 
 /**
  * Categorizes commit messages based on conventional commit prefixes (e.g., "feat:", "fix:").
@@ -372,6 +701,24 @@ async function openGitHubPRInBrowser(
 }
 
 /**
+ * Fetches the current PR description from an existing PR using GitHub CLI.
+ * @param {string} branchName The branch name to check for existing PR.
+ * @returns {Promise<string|null>} The current PR body or null if no PR exists.
+ */
+async function getExistingPRDescription(branchName) {
+  try {
+    const prBody = await executeCommand(
+      `gh pr view ${branchName} --json body --jq .body`,
+      `Fetching existing PR description for branch "${branchName}"...`,
+      false
+    );
+    return prBody || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
  * Creates a GitHub Pull Request using the GitHub CLI.
  * @param {string} prDescription The generated PR description.
  * @param {string} prTitle The generated PR title.
@@ -501,6 +848,23 @@ async function createGitHubPRWithCLI(
     );
   }
 }
+/**
+ * Fetches the current PR description from an existing PR using GitHub CLI.
+ * @param {string} branchName The branch name to check for existing PR.
+ * @returns {Promise<string|null>} The current PR body or null if no PR exists.
+ */
+async function getExistingPRDescription(branchName) {
+  try {
+    const prBody = await executeCommand(
+      `gh pr view ${branchName} --json body --jq .body`,
+      `Fetching existing PR description for branch "${branchName}"...`,
+      false
+    );
+    return prBody || null;
+  } catch (error) {
+    return null;
+  }
+}
 
 /**
  * Generates a suggested branch type (e.g., "feat", "fix") using Google Gemini based on commit messages.
@@ -611,13 +975,17 @@ Generated Branch Name (type/description-kebab-case):
  * @param {string} templateContent The content of the chosen PR template.
  * @param {string} templateLanguage The language of the PR template (e.g., "en", "pt").
  * @param {string} devDescription The developer's brief description of their work.
+ * @param {Array<{hash: string, content: string, truncated: boolean}>|null} commitDiffs Optional array of commit diffs.
+ * @param {string|null} existingPRDescription Optional existing PR description to use as context for updates.
  * @returns {Promise<string>} The AI-generated content for the PR description. Returns a fallback comment if AI generation fails.
  */
 async function generateAIContent(
   commitMessages,
   templateContent,
   templateLanguage,
-  devDescription
+  devDescription,
+  commitDiffs = null,
+  existingPRDescription = null
 ) {
   if (!GEMINI_API_KEY) {
     console.warn("GEMINI_API_KEY is not set. Skipping AI content generation.");
@@ -625,26 +993,51 @@ async function generateAIContent(
   }
 
   const spinner = ora("Generating AI-enhanced PR description...").start();
+  
+  const isUpdate = existingPRDescription !== null;
+  const promptMode = isUpdate ? "UPDATE" : "CREATE";
+  
   const prompt = `
 You are an expert in writing Git Pull Request descriptions.
-Your task is to generate a clear, concise, and comprehensive Pull Request description.
+Your task is to ${isUpdate ? 'UPDATE an existing' : 'generate a new'} Pull Request description.
+
+${isUpdate ? `
+**UPDATE MODE:**
+You are updating an existing PR description with new changes. The existing PR description is provided below.
+Your task is to:
+1. Keep all the existing content that is still relevant
+2. Add information about the new changes from the new commit messages and diffs
+3. Update sections that need to reflect the new changes
+4. Maintain consistency with the existing description style and structure
+5. Do NOT remove or overwrite existing content unless it's directly contradicted by new changes
+
+Existing PR Description:
+${existingPRDescription}
+
+---
+
+` : ''}
 
 Here's the process:
-1.  **Analyze Commit Messages:** Review the provided Git commit messages.
-2.  **Fill Template Sections:** Use the information from the commit messages to fill in the relevant sections of the PR template.
-3.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.
-4.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it's a placeholder like #ISSUE_NUMBER) or indicate that it's not applicable (e.g., "N/A" or "No relevant changes").
-5.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.
-6.  **Generate in the specified language:** The PR description should be generated in the language specified by 'templateLanguage'.
+1.  **Analyze Commit Messages:** Review the provided Git commit messages${isUpdate ? ' (these are NEW commits since the last update)' : ''}.
+${commitDiffs ? '2.  **Analyze Code Changes:** Review the actual code diffs to understand what was modified, added, or removed.' : ''}
+${commitDiffs ? '3.  **Synthesize Information:** Combine insights from both commit messages and code changes.' : '2.  **Fill Template Sections:** Use the information from the commit messages to fill in the relevant sections of the PR template.'}
+${commitDiffs ? `4.  **${isUpdate ? 'Update' : 'Fill'} Template Sections:** ${isUpdate ? 'Update the existing PR description by adding information about new changes' : 'Use the information from both commit messages and code changes to fill in the relevant sections of the PR template'}.` : `3.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.`}
+${commitDiffs ? '5.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.' : '4.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it\'s a placeholder like #ISSUE_NUMBER) or indicate that it\'s not applicable (e.g., "N/A" or "No relevant changes").'}
+${commitDiffs ? '6.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it\'s a placeholder like #ISSUE_NUMBER) or indicate that it\'s not applicable (e.g., "N/A" or "No relevant changes").' : '5.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.'}
+${commitDiffs ? '7.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.' : '6.  **Generate in the specified language:** The PR description should be generated in the language specified by \'templateLanguage\'.'}
+${commitDiffs ? '8.  **Generate in the specified language:** The PR description should be generated in the language specified by \'templateLanguage\'.' : ''}
 
-Commit Messages:
+${isUpdate ? 'New ' : ''}Commit Messages:
 ${commitMessages.join("\n")}
 
-Developer's Description of Work:
+${commitDiffs ? formatDiffsForAI(commitDiffs, commitMessages) : ''}
+
+Developer's Description of ${isUpdate ? 'New ' : ''}Work:
 ${devDescription || "No additional description provided."}
 
-PR Template (Language: ${templateLanguage}):
-${templateContent}
+${!isUpdate ? `PR Template (Language: ${templateLanguage}):
+${templateContent}` : ''}
 
 Generated PR Description:
 `;
@@ -673,6 +1066,16 @@ Generated PR Description:
   } catch (error) {
     spinner.fail("Error generating AI content.");
     console.error("Error generating AI content:", error.message);
+    
+    const errorMsg = error.message.toLowerCase();
+    if (errorMsg.includes('token') || errorMsg.includes('limit') || errorMsg.includes('too large') || errorMsg.includes('quota')) {
+      console.warn("\n⚠ The error may be due to exceeding API token limits.");
+      console.warn("   Suggestions:");
+      console.warn("   1. Reduce the number of commits (use fewer commits in your PR)");
+      console.warn("   2. Run without the --read flag to exclude diffs");
+      console.warn("   3. Try again with a smaller commit range\n");
+    }
+    
     console.warn("Returning original template due to AI generation failure.");
     return `<!-- Error: AI content generation failed. Please review and fill manually. Details: ${error.message} -->\n\n${templateContent}`;
   }
@@ -822,6 +1225,16 @@ async function main() {
         type: "boolean",
         description: "Create GitHub PR using GitHub CLI",
       })
+      .option("read", {
+        alias: "r",
+        type: "boolean",
+        description: "Include commit diffs for more detailed PR descriptions",
+      })
+      .option("rmd", {
+        type: "boolean",
+        description: "Include diffs from merge commits",
+        default: false,
+      })
       .option("refill", {
         type: "boolean",
         description:
@@ -837,7 +1250,19 @@ async function main() {
       })
       .help().argv;
 
-    let commitMessages = await getCommitHistory();
+    const readOptions = {
+      readDiffs: argv.read || false,
+      includeMergeDiffs: argv.rmd || false
+    };
+    
+    let commitHistoryResult = await getCommitHistory(undefined, readOptions);
+    
+    let commitMessages = Array.isArray(commitHistoryResult) 
+      ? commitHistoryResult 
+      : commitHistoryResult.messages;
+    let commitHashes = Array.isArray(commitHistoryResult) 
+      ? [] 
+      : commitHistoryResult.hashes;
 
     if (commitMessages.length === 0) {
       console.log("No new local commits found since the last push to origin.");
@@ -871,7 +1296,13 @@ async function main() {
 
         if (commitCount > 0) {
           if (argv.refill) {
-            commitMessages = await getCommitHistory(commitCount);
+            commitHistoryResult = await getCommitHistory(commitCount, readOptions);
+            commitMessages = Array.isArray(commitHistoryResult) 
+              ? commitHistoryResult 
+              : commitHistoryResult.messages;
+            commitHashes = Array.isArray(commitHistoryResult) 
+              ? [] 
+              : commitHistoryResult.hashes;
           } else {
             const { confirmCommits } = await inquirer.default.prompt([
               {
@@ -883,7 +1314,13 @@ async function main() {
             ]);
 
             if (confirmCommits) {
-              commitMessages = await getCommitHistory(commitCount);
+              commitHistoryResult = await getCommitHistory(commitCount, readOptions);
+              commitMessages = Array.isArray(commitHistoryResult) 
+                ? commitHistoryResult 
+                : commitHistoryResult.messages;
+              commitHashes = Array.isArray(commitHistoryResult) 
+                ? [] 
+                : commitHistoryResult.hashes;
             } else {
               console.log("Exiting without generating PR description.");
               return;
@@ -915,12 +1352,31 @@ async function main() {
           console.log("Exiting without generating PR description.");
           return;
         }
-        commitMessages = await getCommitHistory(commitCount);
+        commitHistoryResult = await getCommitHistory(commitCount, readOptions);
+        commitMessages = Array.isArray(commitHistoryResult) 
+          ? commitHistoryResult 
+          : commitHistoryResult.messages;
+        commitHashes = Array.isArray(commitHistoryResult) 
+          ? [] 
+          : commitHistoryResult.hashes;
       }
 
       if (commitMessages.length === 0) {
         console.log("No commits found. Exiting.");
         return;
+      }
+    }
+
+    let commitDiffs = null;
+    if (argv.read && commitHashes.length > 0) {
+      try {
+        commitDiffs = await getCommitDiffs(commitHashes, {
+          includeMergeDiffs: argv.rmd || false
+        });
+      } catch (error) {
+        console.warn("Failed to fetch commit diffs:", error.message);
+        console.log("Continuing with commit messages only.");
+        commitDiffs = null;
       }
     }
 
@@ -965,13 +1421,30 @@ async function main() {
       templateLanguage = selectedLanguage;
     }
 
+    let existingPRDescription = null;
+    if (argv.read) {
+      try {
+        const currentBranch = await executeCommand(
+          "git rev-parse --abbrev-ref HEAD",
+          "Getting current branch...",
+          false
+        );
+        existingPRDescription = await getExistingPRDescription(currentBranch);
+        if (existingPRDescription) {
+          console.log("✓ Found existing PR description. Will use it as context for updates.");
+        }
+      } catch (error) {}
+    }
+
     let prDescription;
     if (templateContent) {
       const aiGeneratedContent = await generateAIContent(
         commitMessages,
         templateContent,
         templateLanguage,
-        devDescription
+        devDescription,
+        commitDiffs,
+        existingPRDescription
       );
       prDescription = aiGeneratedContent;
       if (
