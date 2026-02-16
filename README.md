@@ -45,6 +45,45 @@ pr-cli
   pr-cli --description "This PR adds a new feature for user authentication."
   ```
 
+- `-r`, `--read`, `-rmd`: Include commit diffs (actual code changes) for more detailed and accurate PR descriptions. This provides the AI with richer context about what was changed, enabling it to generate more comprehensive descriptions based on the actual code modifications.
+
+  ```bash
+  pr-cli --read
+  ```
+
+  **Additional option:**
+  
+  - `-rmd`: Include diffs from merge commits. By default, merge commits are excluded to reduce noise.
+    ```bash
+    pr-cli -rmd
+    ```
+
+  **Benefits:**
+  - More accurate PR descriptions that reflect actual code changes
+  - Better context for complex refactoring or architectural changes
+  - Useful when commit messages are brief or don't capture all details
+  - Automatic optimization: large diffs are intelligently truncated to prevent token limit issues
+  
+  **How it works:**
+  - Diffs larger than 8KB are automatically truncated while preserving file headers and structure
+  - Each file shows up to 40 lines of changes to maintain context while saving tokens
+  - Binary files are automatically filtered out
+  - You'll see clear indicators when content is truncated
+  
+  **Examples:**
+  ```bash
+  # Basic usage with code diffs
+  pr-cli -r
+  
+  # Include merge commits
+  pr-cli -rmd
+  
+  # Combine with GitHub PR creation
+  pr-cli --gh --read --self
+  ```
+  
+  **Note:** This option adds 1-10 seconds to generation time depending on the number and size of commits.
+
 - `--github` (or `-g`): Opens a GitHub PR page in your browser with the PR title and description pre-filled in the URL. The full PR description is also copied to your clipboard, and you'll be instructed to paste it into the description field on the GitHub page.
   ```bash
   pr-cli --github
@@ -95,6 +134,33 @@ Alternatively, you can create a `.env` file in the project root with `GEMINI_API
 7.  **Review and copy / Create PR:**
     - If using `--github`, the generated PR description will be displayed, and the GitHub PR URL and full description will be copied to your clipboard.
     - If using `--gh`, the PR will be created directly via GitHub CLI.
+
+### Common Usage Examples
+
+#### Basic PR generation
+```bash
+pr-cli
+```
+
+#### With code analysis (recommended)
+```bash
+pr-cli --read
+```
+
+#### Include merge commits
+```bash
+pr-cli --read -rmd
+```
+
+#### Create GitHub PR directly with code analysis
+```bash
+pr-cli --gh --read --self
+```
+
+#### Copy to clipboard with code context
+```bash
+pr-cli --copy --read
+```
 
 ## PR Template Example
 

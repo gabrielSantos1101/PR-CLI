@@ -83,6 +83,61 @@ async function executeCommand(
 }
 
 /**
+ * Truncates a diff to a maximum size while preserving structure.
+ * Keeps file headers and a sample of changes from each file.
+ * @param {string} diffContent The diff content to truncate.
+ * @param {number} maxSize Maximum size in characters.
+ * @returns {{content: string, wasTruncated: boolean}} Truncated diff and truncation flag.
+ */
+function truncateDiff(diffContent, maxSize = 10000) {
+  if (diffContent.length <= maxSize) {
+    return { content: diffContent, wasTruncated: false };
+  }
+
+  const lines = diffContent.split('\n');
+  const result = [];
+  let currentSize = 0;
+  let filesProcessed = 0;
+  let currentFile = null;
+  let linesInCurrentFile = 0;
+  const maxLinesPerFile = 40;
+
+  for (const line of lines) {
+    if (line.startsWith('diff --git') || line.startsWith('index ') || 
+        line.startsWith('---') || line.startsWith('+++')) {
+      if (line.startsWith('diff --git')) {
+        if (currentFile && linesInCurrentFile > maxLinesPerFile) {
+          result.push(`... (${linesInCurrentFile - maxLinesPerFile} more lines omitted)`);
+        }
+        filesProcessed++;
+        currentFile = line;
+        linesInCurrentFile = 0;
+      }
+      result.push(line);
+      currentSize += line.length + 1;
+      continue;
+    }
+
+    if (currentSize + line.length > maxSize) {
+      result.push(`\n... [Diff truncated: ${diffContent.length - currentSize} characters omitted from ${lines.length - result.length} remaining lines]`);
+      return { content: result.join('\n'), wasTruncated: true };
+    }
+
+    linesInCurrentFile++;
+    if (linesInCurrentFile <= maxLinesPerFile) {
+      result.push(line);
+      currentSize += line.length + 1;
+    }
+  }
+
+  if (linesInCurrentFile > maxLinesPerFile) {
+    result.push(`... (${linesInCurrentFile - maxLinesPerFile} more lines omitted)`);
+  }
+
+  return { content: result.join('\n'), wasTruncated: false };
+}
+
+/**
  * Validates if a string is a valid Git commit hash format.
  * Accepts both short (7+ chars) and full (40 chars) SHA-1 hashes.
  * @param {string} hash The commit hash to validate.
@@ -173,6 +228,7 @@ async function isMergeCommit(commitHash) {
 
 /**
  * Fetches commit diffs for an array of commit hashes.
+ * Automatically optimizes diff sizes to prevent token limit issues.
  * @param {string[]} commitHashes Array of commit SHA hashes.
  * @param {Object} options Configuration object.
  * @param {boolean} [options.includeMergeDiffs=false] Whether to include merge commit diffs.
@@ -248,12 +304,22 @@ async function getCommitDiffs(commitHashes, options = {}) {
       
       diffContent = filterBinaryFiles(diffContent);
       
-      totalSize += diffContent.length;
+      let finalContent = diffContent;
+      let wasTruncated = false;
+      const MAX_DIFF_SIZE = 8000;
+      
+      if (diffContent.length > MAX_DIFF_SIZE) {
+        const result = truncateDiff(diffContent, MAX_DIFF_SIZE);
+        finalContent = result.content;
+        wasTruncated = result.wasTruncated;
+      }
+      
+      totalSize += finalContent.length;
       validCount++;
       diffs.push({ 
         hash, 
-        content: diffContent, 
-        truncated: false,
+        content: finalContent, 
+        truncated: wasTruncated,
         error: null
       });
       
