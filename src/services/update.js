@@ -1,10 +1,14 @@
-const fs = require("fs").promises;
-const path = require("path");
-const os = require("os");
-const ora = require("ora").default;
-const inquirer = require("inquirer");
-const { UPDATE_CHECK_INTERVAL } = require("../constants");
-const { isVersionOlder, executeCommand } = require("../utils/helpers");
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
+import ora from "ora";
+import inquirer from "inquirer";
+import { createRequire } from "module";
+import { UPDATE_CHECK_INTERVAL } from "../constants.js";
+import { isVersionOlder, executeCommand } from "../utils/helpers.js";
+
+const require = createRequire(import.meta.url);
+const packageJson = require("../../package.json");
 
 const fetch = globalThis.fetch;
 
@@ -12,8 +16,8 @@ if (typeof fetch !== "function") {
   throw new Error("Fetch API requires Node.js 18 or newer.");
 }
 
-const PACKAGE_VERSION = require("../../package.json").version;
-const PACKAGE_NAME = require("../../package.json").name;
+const PACKAGE_VERSION = packageJson.version;
+const PACKAGE_NAME = packageJson.name;
 
 /**
  * Gets the path to the update timestamp file.
@@ -29,7 +33,7 @@ function getUpdateTimestampFilePath() {
  * Checks for updates to the package.
  * @returns {Promise<boolean>} True if an update is available.
  */
-async function checkForUpdates() {
+export async function checkForUpdates() {
   const spinner = ora("Checking for updates...").start();
   const timestampFilePath = getUpdateTimestampFilePath();
 
@@ -81,12 +85,12 @@ async function checkForUpdates() {
  * @param {boolean} updateAvailable Whether an update is available.
  * @returns {Promise<void>}
  */
-async function handleUpdate(updateAvailable) {
+export async function handleUpdate(updateAvailable) {
   if (!updateAvailable) {
     return;
   }
 
-  const { confirmUpdate } = await inquirer.default.prompt([
+  const { confirmUpdate } = await inquirer.prompt([
     {
       type: "confirm",
       name: "confirmUpdate",
@@ -116,8 +120,3 @@ async function handleUpdate(updateAvailable) {
     console.log("Update skipped. Continuing with current version.");
   }
 }
-
-module.exports = {
-  checkForUpdates,
-  handleUpdate,
-};

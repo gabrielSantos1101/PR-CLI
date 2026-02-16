@@ -1,5 +1,5 @@
-const { executeCommand, isValidCommitHash } = require("./helpers");
-const ora = require("ora").default;
+import ora from "ora";
+import { executeCommand, isValidCommitHash } from "./helpers.js";
 
 /**
  * Truncates a diff to a maximum size while preserving structure.
@@ -7,7 +7,7 @@ const ora = require("ora").default;
  * @param {number} maxSize Maximum size in characters.
  * @returns {{content: string, wasTruncated: boolean}} Truncated diff and truncation flag.
  */
-function truncateDiff(diffContent, maxSize = 10000) {
+export function truncateDiff(diffContent, maxSize = 10000) {
   if (diffContent.length <= maxSize) {
     return { content: diffContent, wasTruncated: false };
   }
@@ -60,7 +60,7 @@ function truncateDiff(diffContent, maxSize = 10000) {
  * @param {string} diffContent The raw diff content from git.
  * @returns {string} The filtered diff content with binary data removed.
  */
-function filterBinaryFiles(diffContent) {
+export function filterBinaryFiles(diffContent) {
   const lines = diffContent.split('\n');
   const filtered = [];
   let skipBinary = false;
@@ -89,7 +89,7 @@ function filterBinaryFiles(diffContent) {
  * @param {string} commitHash The commit hash to check.
  * @returns {Promise<boolean>} True if the commit is a merge commit, false otherwise.
  */
-async function isMergeCommit(commitHash) {
+export async function isMergeCommit(commitHash) {
   if (!isValidCommitHash(commitHash)) {
     console.warn(`Invalid commit hash format in isMergeCommit: "${commitHash}"`);
     return false;
@@ -113,7 +113,7 @@ async function isMergeCommit(commitHash) {
  * @param {Object} options Configuration object.
  * @returns {Promise<Array<{hash: string, content: string, truncated: boolean, error: string|null}>>}
  */
-async function getCommitDiffs(commitHashes, options = {}) {
+export async function getCommitDiffs(commitHashes, options = {}) {
   const { includeMergeDiffs = false } = options;
   
   if (!Array.isArray(commitHashes)) {
@@ -257,7 +257,7 @@ async function getCommitDiffs(commitHashes, options = {}) {
  * @param {Object} [options={}] Configuration options.
  * @returns {Promise<string[]|{messages: string[], hashes: string[], count: number}>}
  */
-async function getCommitHistory(count, options = {}) {
+export async function getCommitHistory(count, options = {}) {
   const { readDiffs = false, includeMergeDiffs = false } = options;
   const spinner = ora("Fetching commit history...").start();
   try {
@@ -326,11 +326,3 @@ async function getCommitHistory(count, options = {}) {
     return readDiffs ? { messages: [], hashes: [], count: 0 } : [];
   }
 }
-
-module.exports = {
-  truncateDiff,
-  filterBinaryFiles,
-  isMergeCommit,
-  getCommitDiffs,
-  getCommitHistory,
-};

@@ -1,32 +1,35 @@
 #!/usr/bin/env node
 
-const yargs = require("yargs/yargs");
-const { hideBin } = require("yargs/helpers");
-const inquirer = require("inquirer");
-const { ExitPromptError } = require("@inquirer/core");
-const clipboardy = require("clipboardy");
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
+import inquirer from "inquirer";
+import { ExitPromptError } from "@inquirer/core";
+import clipboardy from "clipboardy";
 
-const { checkForUpdates, handleUpdate } = require("./services/update");
-const { categorizeCommits } = require("./services/commit");
-const {
+import { checkForUpdates, handleUpdate } from "./services/update.js";
+import { categorizeCommits } from "./services/commit.js";
+import {
   getPRTemplates,
   chooseTemplate,
   generatePRDescription,
   getExistingPRDescription,
-} = require("./services/pr");
+} from "./services/pr.js";
 
-const { executeCommand } = require("./utils/helpers");
-const { getCommitHistory, getCommitDiffs } = require("./utils/git");
-const {
+import { executeCommand } from "./utils/helpers.js";
+import { getCommitHistory, getCommitDiffs } from "./utils/git.js";
+import {
   generateAIBranchType,
   generateAIBranchName,
   generateAIContent,
-} = require("./utils/ai");
-const {
+} from "./utils/ai.js";
+import {
   openGitHubPRInBrowser,
   createGitHubPRWithCLI,
-} = require("./utils/github");
+} from "./utils/github.js";
 
+/**
+ * Main function to run the CLI tool.
+ */
 async function main() {
   try {
     const updateAvailable = await checkForUpdates();
@@ -123,7 +126,7 @@ async function main() {
               ? [] 
               : commitHistoryResult.hashes;
           } else {
-            const { confirmCommits } = await inquirer.default.prompt([
+            const { confirmCommits } = await inquirer.prompt([
               {
                 type: "confirm",
                 name: "confirmCommits",
@@ -155,7 +158,7 @@ async function main() {
         console.log(
           "Could not automatically count commits. Falling back to manual input."
         );
-        const { commitCount } = await inquirer.default.prompt([
+        const { commitCount } = await inquirer.prompt([
           {
             type: "number",
             name: "commitCount",
@@ -199,7 +202,7 @@ async function main() {
       }
     }
 
-    const { devDescription } = await inquirer.default.prompt([
+    const { devDescription } = await inquirer.prompt([
       {
         type: "input",
         name: "devDescription",
@@ -219,7 +222,7 @@ async function main() {
     let templateLanguage = "en";
 
     if (templateContent) {
-      const { selectedLanguage } = await inquirer.default.prompt([
+      const { selectedLanguage } = await inquirer.prompt([
         {
           type: "list",
           name: "selectedLanguage",
@@ -322,7 +325,7 @@ async function main() {
       const baseBranch = "main";
 
       if (currentBranch === "main" || currentBranch === "master") {
-        const { createNewBranch } = await inquirer.default.prompt([
+        const { createNewBranch } = await inquirer.prompt([
           {
             type: "confirm",
             name: "createNewBranch",
@@ -332,7 +335,7 @@ async function main() {
         ]);
 
         if (createNewBranch) {
-          const { generateWithAI } = await inquirer.default.prompt([
+          const { generateWithAI } = await inquirer.prompt([
             {
               type: "confirm",
               name: "generateWithAI",
@@ -349,7 +352,7 @@ async function main() {
                 "AI failed to generate a branch name. Falling back to manual input with AI-suggested type."
               );
               const suggestedType = await generateAIBranchType(commitMessages);
-              const { manualDescription } = await inquirer.default.prompt([
+              const { manualDescription } = await inquirer.prompt([
                 {
                   type: "input",
                   name: "manualDescription",
@@ -367,7 +370,7 @@ async function main() {
               newBranchName = `${suggestedType}/${manualDescription}`;
             } else {
               console.log(`AI suggested branch name: ${newBranchName}`);
-              const { confirmAIBranchName } = await inquirer.default.prompt([
+              const { confirmAIBranchName } = await inquirer.prompt([
                 {
                   type: "confirm",
                   name: "confirmAIBranchName",
@@ -379,7 +382,7 @@ async function main() {
                 const suggestedType = await generateAIBranchType(
                   commitMessages
                 );
-                const { manualDescription } = await inquirer.default.prompt([
+                const { manualDescription } = await inquirer.prompt([
                   {
                     type: "input",
                     name: "manualDescription",
@@ -402,7 +405,7 @@ async function main() {
               "Skipping AI branch name generation. Suggesting type based on commits."
             );
             const suggestedType = await generateAIBranchType(commitMessages);
-            const { manualDescription } = await inquirer.default.prompt([
+            const { manualDescription } = await inquirer.prompt([
               {
                 type: "input",
                 name: "manualDescription",

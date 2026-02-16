@@ -1,12 +1,12 @@
-const { exec } = require("child_process");
-const ora = require("ora").default;
+import { exec } from "child_process";
+import ora from "ora";
 
 /**
  * Executes a shell command and returns its output.
  * @param {string} command The command to execute.
  * @returns {Promise<string>} The command's stdout.
  */
-async function executeCommand(
+export async function executeCommand(
   command,
   spinnerText = "Executing command...",
   logSuccess = true
@@ -37,7 +37,7 @@ async function executeCommand(
  * @param {string} hash The commit hash to validate.
  * @returns {boolean} True if the hash format is valid, false otherwise.
  */
-function isValidCommitHash(hash) {
+export function isValidCommitHash(hash) {
   if (typeof hash !== 'string') {
     return false;
   }
@@ -50,7 +50,7 @@ function isValidCommitHash(hash) {
  * @param {string} v2 Version string 2.
  * @returns {boolean} True if v1 is older than v2, false otherwise.
  */
-function isVersionOlder(v1, v2) {
+export function isVersionOlder(v1, v2) {
   const parts1 = v1.split(".").map(Number);
   const parts2 = v2.split(".").map(Number);
 
@@ -67,9 +67,3 @@ function isVersionOlder(v1, v2) {
   }
   return false;
 }
-
-module.exports = {
-  executeCommand,
-  isValidCommitHash,
-  isVersionOlder,
-};

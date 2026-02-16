@@ -2,7 +2,7 @@
  * Mapping of conventional commit types to their corresponding PR section titles.
  * @type {Object.<string, string>}
  */
-const COMMIT_TYPES = {
+export const COMMIT_TYPES = {
   feat: "Features",
   fix: "Bug Fixes",
   refactor: "Refactors",
@@ -16,9 +16,4 @@ const COMMIT_TYPES = {
   revert: "Reverts",
 };
 
-const UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000;
-
-module.exports = {
-  COMMIT_TYPES,
-  UPDATE_CHECK_INTERVAL,
-};
+export const UPDATE_CHECK_INTERVAL = 24 * 60 * 60 * 1000;
