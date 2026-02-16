@@ -11,8 +11,11 @@ const clipboardy = require("clipboardy");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const ora = require("ora").default;
 const os = require("os");
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+const fetch = globalThis.fetch;
+
+if (typeof fetch !== "function") {
+  throw new Error("Fetch API requires Node.js 18 or newer.");
+}
 
 /**
  * Google Gemini API Key.
@@ -867,20 +870,24 @@ async function main() {
         const commitCount = parseInt(commitCountStr, 10);
 
         if (commitCount > 0) {
-          const { confirmCommits } = await inquirer.default.prompt([
-            {
-              type: "confirm",
-              name: "confirmCommits",
-              message: `Found ${commitCount} commits on branch "${currentBranch}". Do you want to use them to create the PR?`,
-              default: true,
-            },
-          ]);
-
-          if (confirmCommits) {
+          if (argv.refill) {
             commitMessages = await getCommitHistory(commitCount);
           } else {
-            console.log("Exiting without generating PR description.");
-            return;
+            const { confirmCommits } = await inquirer.default.prompt([
+              {
+                type: "confirm",
+                name: "confirmCommits",
+                message: `Found ${commitCount} commits on branch "${currentBranch}". Do you want to use them to create the PR?`,
+                default: true,
+              },
+            ]);
+
+            if (confirmCommits) {
+              commitMessages = await getCommitHistory(commitCount);
+            } else {
+              console.log("Exiting without generating PR description.");
+              return;
+            }
           }
         } else {
           console.log(
