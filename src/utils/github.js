@@ -1,15 +1,15 @@
-const fs = require("fs").promises;
-const path = require("path");
-const inquirer = require("inquirer");
-const clipboardy = require("clipboardy");
-const { executeCommand } = require("./helpers");
+import fs from "fs/promises";
+import path from "path";
+import inquirer from "inquirer";
+import clipboardy from "clipboardy";
+import { executeCommand } from "./helpers.js";
 
 /**
  * Parses a GitHub repository URL to extract the owner and repository name.
  * @param {string} repoUrl The full GitHub repository URL.
  * @returns {{owner: string, repo: string}|null}
  */
-function parseGitHubRepoUrl(repoUrl) {
+export function parseGitHubRepoUrl(repoUrl) {
   const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/.]+)(\.git)?$/i);
   if (match && match[1] && match[2]) {
     return { owner: match[1], repo: match[2] };
@@ -25,7 +25,7 @@ function parseGitHubRepoUrl(repoUrl) {
  * @param {string} currentBranch The current branch name.
  * @param {string} baseBranch The base branch name for the PR.
  */
-async function openGitHubPRInBrowser(
+export async function openGitHubPRInBrowser(
   prDescription,
   prTitle,
   repoUrl,
@@ -46,7 +46,7 @@ async function openGitHubPRInBrowser(
 
   console.log(`\nGenerated GitHub PR URL: ${githubPRUrl}`);
   try {
-    await clipboardy.default.write(githubPRUrl);
+    await clipboardy.write(githubPRUrl);
     console.log(
       "GitHub PR URL copied to clipboard! Please paste it into your browser."
     );
@@ -58,7 +58,7 @@ async function openGitHubPRInBrowser(
   }
 
   try {
-    await clipboardy.default.write(prDescription);
+    await clipboardy.write(prDescription);
     console.log(
       "Full PR description copied to clipboard! Paste it into the description field on the GitHub page after opening the URL."
     );
@@ -78,7 +78,7 @@ async function openGitHubPRInBrowser(
  * @param {string} baseBranch The base branch name for the PR.
  * @param {Object} argv Command line arguments.
  */
-async function createGitHubPRWithCLI(
+export async function createGitHubPRWithCLI(
   prDescription,
   prTitle,
   currentBranch,
@@ -103,7 +103,7 @@ async function createGitHubPRWithCLI(
         let overwritePr = true;
 
         if (!argv.refill) {
-          const promptResult = await inquirer.default.prompt([
+          const promptResult = await inquirer.prompt([
             {
               type: "confirm",
               name: "overwritePr",
@@ -148,7 +148,7 @@ async function createGitHubPRWithCLI(
       );
     } catch (error) {
       console.log(`Branch "${currentBranch}" is not published to remote.`);
-      const { publishBranch } = await inquirer.default.prompt([
+      const { publishBranch } = await inquirer.prompt([
         {
           type: "confirm",
           name: "publishBranch",
@@ -201,9 +201,3 @@ async function createGitHubPRWithCLI(
     );
   }
 }
-
-module.exports = {
-  parseGitHubRepoUrl,
-  openGitHubPRInBrowser,
-  createGitHubPRWithCLI,
-};

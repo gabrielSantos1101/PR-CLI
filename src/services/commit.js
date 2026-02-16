@@ -1,11 +1,11 @@
-const { COMMIT_TYPES } = require("../constants");
+import { COMMIT_TYPES } from "../constants.js";
 
 /**
  * Categorizes commit messages based on conventional commit prefixes.
  * @param {string[]} commitMessages An array of raw commit messages.
  * @returns {Object.<string, string[]>}
  */
-function categorizeCommits(commitMessages) {
+export function categorizeCommits(commitMessages) {
   const categorized = {};
 
   for (const message of commitMessages) {
@@ -42,7 +42,7 @@ function categorizeCommits(commitMessages) {
  * @param {string[]} commitMessages Array of commit messages.
  * @returns {string} Formatted string with diffs in markdown code blocks.
  */
-function formatDiffsForAI(diffs, commitMessages) {
+export function formatDiffsForAI(diffs, commitMessages) {
   let formatted = "\n\n=== CODE CHANGES ===\n\n";
   
   diffs.forEach((diff, index) => {
@@ -57,8 +57,3 @@ function formatDiffsForAI(diffs, commitMessages) {
   
   return formatted;
 }
-
-module.exports = {
-  categorizeCommits,
-  formatDiffsForAI,
-};

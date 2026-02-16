@@ -1,15 +1,14 @@
-const fs = require("fs").promises;
-const path = require("path");
-const inquirer = require("inquirer");
-const clipboardy = require("clipboardy");
-const { COMMIT_TYPES } = require("../constants");
-const { executeCommand } = require("../utils/helpers");
+import fs from "fs/promises";
+import path from "path";
+import inquirer from "inquirer";
+import { COMMIT_TYPES } from "../constants.js";
+import { executeCommand } from "../utils/helpers.js";
 
 /**
  * Checks for Pull Request templates in the `.github` folder.
  * @returns {Promise<string[]>} An array of template file paths.
  */
-async function getPRTemplates() {
+export async function getPRTemplates() {
   const githubPath = path.join(process.cwd(), ".github");
   const templateDirPath = path.join(githubPath, "PULL_REQUEST_TEMPLATE");
   const templates = [];
@@ -54,7 +53,7 @@ async function getPRTemplates() {
  * @param {string[]} templates An array of template file paths.
  * @returns {Promise<string|null>} The content of the chosen template.
  */
-async function chooseTemplate(templates) {
+export async function chooseTemplate(templates) {
   if (templates.length === 0) {
     return null;
   }
@@ -73,7 +72,7 @@ async function chooseTemplate(templates) {
     value: tplPath,
   }));
 
-  const { selectedTemplatePath } = await inquirer.default.prompt([
+  const { selectedTemplatePath } = await inquirer.prompt([
     {
       type: "list",
       name: "selectedTemplatePath",
@@ -95,7 +94,7 @@ async function chooseTemplate(templates) {
  * @param {string|null} templateContent Optional content from a PR template.
  * @returns {string} The formatted PR description.
  */
-function generatePRDescription(categorizedCommits, templateContent = null) {
+export function generatePRDescription(categorizedCommits, templateContent = null) {
   let prBody = "";
 
   if (templateContent) {
@@ -129,7 +128,7 @@ function generatePRDescription(categorizedCommits, templateContent = null) {
  * @param {string} branchName The branch name to check for existing PR.
  * @returns {Promise<string|null>} The current PR body or null if no PR exists.
  */
-async function getExistingPRDescription(branchName) {
+export async function getExistingPRDescription(branchName) {
   try {
     const prBody = await executeCommand(
       `gh pr view ${branchName} --json body --jq .body`,
@@ -141,10 +140,3 @@ async function getExistingPRDescription(branchName) {
     return null;
   }
 }
-
-module.exports = {
-  getPRTemplates,
-  chooseTemplate,
-  generatePRDescription,
-  getExistingPRDescription,
-};

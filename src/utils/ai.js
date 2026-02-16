@@ -1,7 +1,7 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const ora = require("ora").default;
-const { COMMIT_TYPES } = require("../constants");
-const { formatDiffsForAI } = require("../services/commit");
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import ora from "ora";
+import { COMMIT_TYPES } from "../constants.js";
+import { formatDiffsForAI } from "../services/commit.js";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -12,7 +12,7 @@ const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
  * @param {string[]} commitMessages An array of raw commit messages.
  * @returns {Promise<string>} The AI-generated branch type.
  */
-async function generateAIBranchType(commitMessages) {
+export async function generateAIBranchType(commitMessages) {
   if (!GEMINI_API_KEY) {
     console.warn(
       "GEMINI_API_KEY is not set. Skipping AI branch type generation."
@@ -60,7 +60,7 @@ Suggested Branch Type:
  * @param {string[]} commitMessages An array of raw commit messages.
  * @returns {Promise<string>} The AI-generated full branch name.
  */
-async function generateAIBranchName(commitMessages) {
+export async function generateAIBranchName(commitMessages) {
   if (!GEMINI_API_KEY) {
     console.warn(
       "GEMINI_API_KEY is not set. Skipping AI branch name generation."
@@ -118,7 +118,7 @@ Generated Branch Name (type/description-kebab-case):
  * @param {string|null} existingPRDescription Optional existing PR description.
  * @returns {Promise<string>} The AI-generated content for the PR description.
  */
-async function generateAIContent(
+export async function generateAIContent(
   commitMessages,
   templateContent,
   templateLanguage,
@@ -219,9 +219,3 @@ Generated PR Description:
     return `<!-- Error: AI content generation failed. Please review and fill manually. Details: ${error.message} -->\n\n${templateContent}`;
   }
 }
-
-module.exports = {
-  generateAIBranchType,
-  generateAIBranchName,
-  generateAIContent,
-};
