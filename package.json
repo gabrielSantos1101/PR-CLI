@@ -10,6 +10,7 @@
     "build": "rollup -c rollup.config.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "sideEffects": false,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gabrielSantos1101/PR-CLI.git"
@@ -29,7 +30,6 @@
     "@google/generative-ai": "^0.24.1",
     "clipboardy": "^4.0.0",
     "inquirer": "^12.9.4",
-    "node-fetch": "^3.3.2",
     "ora": "^8.2.0",
     "yargs": "^18.0.0"
   },
@@ -37,6 +37,7 @@
     "@rollup/plugin-commonjs": "^28.0.6",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.1",
+    "@rollup/plugin-terser": "^0.4.4",
     "rollup": "^4.18.1"
   }
 }

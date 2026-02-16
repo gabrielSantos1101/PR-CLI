@@ -11,8 +11,11 @@ const clipboardy = require("clipboardy");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const ora = require("ora").default;
 const os = require("os");
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+const fetch = globalThis.fetch;
+
+if (typeof fetch !== "function") {
+  throw new Error("Fetch API requires Node.js 18 or newer.");
+}
 
 /**
  * Google Gemini API Key.
