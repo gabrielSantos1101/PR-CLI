@@ -701,6 +701,24 @@ async function openGitHubPRInBrowser(
 }
 
 /**
+ * Fetches the current PR description from an existing PR using GitHub CLI.
+ * @param {string} branchName The branch name to check for existing PR.
+ * @returns {Promise<string|null>} The current PR body or null if no PR exists.
+ */
+async function getExistingPRDescription(branchName) {
+  try {
+    const prBody = await executeCommand(
+      `gh pr view ${branchName} --json body --jq .body`,
+      `Fetching existing PR description for branch "${branchName}"...`,
+      false
+    );
+    return prBody || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
  * Creates a GitHub Pull Request using the GitHub CLI.
  * @param {string} prDescription The generated PR description.
  * @param {string} prTitle The generated PR title.
@@ -830,6 +848,23 @@ async function createGitHubPRWithCLI(
     );
   }
 }
+/**
+ * Fetches the current PR description from an existing PR using GitHub CLI.
+ * @param {string} branchName The branch name to check for existing PR.
+ * @returns {Promise<string|null>} The current PR body or null if no PR exists.
+ */
+async function getExistingPRDescription(branchName) {
+  try {
+    const prBody = await executeCommand(
+      `gh pr view ${branchName} --json body --jq .body`,
+      `Fetching existing PR description for branch "${branchName}"...`,
+      false
+    );
+    return prBody || null;
+  } catch (error) {
+    return null;
+  }
+}
 
 /**
  * Generates a suggested branch type (e.g., "feat", "fix") using Google Gemini based on commit messages.
@@ -941,6 +976,7 @@ Generated Branch Name (type/description-kebab-case):
  * @param {string} templateLanguage The language of the PR template (e.g., "en", "pt").
  * @param {string} devDescription The developer's brief description of their work.
  * @param {Array<{hash: string, content: string, truncated: boolean}>|null} commitDiffs Optional array of commit diffs.
+ * @param {string|null} existingPRDescription Optional existing PR description to use as context for updates.
  * @returns {Promise<string>} The AI-generated content for the PR description. Returns a fallback comment if AI generation fails.
  */
 async function generateAIContent(
@@ -948,7 +984,8 @@ async function generateAIContent(
   templateContent,
   templateLanguage,
   devDescription,
-  commitDiffs = null
+  commitDiffs = null,
+  existingPRDescription = null
 ) {
   if (!GEMINI_API_KEY) {
     console.warn("GEMINI_API_KEY is not set. Skipping AI content generation.");
@@ -956,30 +993,51 @@ async function generateAIContent(
   }
 
   const spinner = ora("Generating AI-enhanced PR description...").start();
+  
+  const isUpdate = existingPRDescription !== null;
+  const promptMode = isUpdate ? "UPDATE" : "CREATE";
+  
   const prompt = `
 You are an expert in writing Git Pull Request descriptions.
-Your task is to generate a clear, concise, and comprehensive Pull Request description.
+Your task is to ${isUpdate ? 'UPDATE an existing' : 'generate a new'} Pull Request description.
+
+${isUpdate ? `
+**UPDATE MODE:**
+You are updating an existing PR description with new changes. The existing PR description is provided below.
+Your task is to:
+1. Keep all the existing content that is still relevant
+2. Add information about the new changes from the new commit messages and diffs
+3. Update sections that need to reflect the new changes
+4. Maintain consistency with the existing description style and structure
+5. Do NOT remove or overwrite existing content unless it's directly contradicted by new changes
+
+Existing PR Description:
+${existingPRDescription}
+
+---
+
+` : ''}
 
 Here's the process:
-1.  **Analyze Commit Messages:** Review the provided Git commit messages.
+1.  **Analyze Commit Messages:** Review the provided Git commit messages${isUpdate ? ' (these are NEW commits since the last update)' : ''}.
 ${commitDiffs ? '2.  **Analyze Code Changes:** Review the actual code diffs to understand what was modified, added, or removed.' : ''}
 ${commitDiffs ? '3.  **Synthesize Information:** Combine insights from both commit messages and code changes.' : '2.  **Fill Template Sections:** Use the information from the commit messages to fill in the relevant sections of the PR template.'}
-${commitDiffs ? '4.  **Fill Template Sections:** Use the information from both commit messages and code changes to fill in the relevant sections of the PR template.' : '3.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.'}
+${commitDiffs ? `4.  **${isUpdate ? 'Update' : 'Fill'} Template Sections:** ${isUpdate ? 'Update the existing PR description by adding information about new changes' : 'Use the information from both commit messages and code changes to fill in the relevant sections of the PR template'}.` : `3.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.`}
 ${commitDiffs ? '5.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.' : '4.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it\'s a placeholder like #ISSUE_NUMBER) or indicate that it\'s not applicable (e.g., "N/A" or "No relevant changes").'}
 ${commitDiffs ? '6.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it\'s a placeholder like #ISSUE_NUMBER) or indicate that it\'s not applicable (e.g., "N/A" or "No relevant changes").' : '5.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.'}
 ${commitDiffs ? '7.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.' : '6.  **Generate in the specified language:** The PR description should be generated in the language specified by \'templateLanguage\'.'}
 ${commitDiffs ? '8.  **Generate in the specified language:** The PR description should be generated in the language specified by \'templateLanguage\'.' : ''}
 
-Commit Messages:
+${isUpdate ? 'New ' : ''}Commit Messages:
 ${commitMessages.join("\n")}
 
 ${commitDiffs ? formatDiffsForAI(commitDiffs, commitMessages) : ''}
 
-Developer's Description of Work:
+Developer's Description of ${isUpdate ? 'New ' : ''}Work:
 ${devDescription || "No additional description provided."}
 
-PR Template (Language: ${templateLanguage}):
-${templateContent}
+${!isUpdate ? `PR Template (Language: ${templateLanguage}):
+${templateContent}` : ''}
 
 Generated PR Description:
 `;
@@ -1363,6 +1421,21 @@ async function main() {
       templateLanguage = selectedLanguage;
     }
 
+    let existingPRDescription = null;
+    if (argv.read) {
+      try {
+        const currentBranch = await executeCommand(
+          "git rev-parse --abbrev-ref HEAD",
+          "Getting current branch...",
+          false
+        );
+        existingPRDescription = await getExistingPRDescription(currentBranch);
+        if (existingPRDescription) {
+          console.log("✓ Found existing PR description. Will use it as context for updates.");
+        }
+      } catch (error) {}
+    }
+
     let prDescription;
     if (templateContent) {
       const aiGeneratedContent = await generateAIContent(
@@ -1370,7 +1443,8 @@ async function main() {
         templateContent,
         templateLanguage,
         devDescription,
-        commitDiffs
+        commitDiffs,
+        existingPRDescription
       );
       prDescription = aiGeneratedContent;
       if (
