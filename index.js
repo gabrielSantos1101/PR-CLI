@@ -346,7 +346,7 @@ async function getCommitDiffs(commitHashes, options = {}) {
   const warnings = [];
   
   if (mergeCommitsExcluded > 0) {
-    warnings.push(`⚠ ${mergeCommitsExcluded} merge commit(s) excluded. Use --rmd flag to include merge commit diffs.`);
+    warnings.push(`⚠ ${mergeCommitsExcluded} merge commit(s) excluded.`);
   }
   
   if (binaryFilesFiltered > 0) {
@@ -1230,11 +1230,6 @@ async function main() {
         type: "boolean",
         description: "Include commit diffs for more detailed PR descriptions",
       })
-      .option("rmd", {
-        type: "boolean",
-        description: "Include diffs from merge commits",
-        default: false,
-      })
       .option("refill", {
         type: "boolean",
         description:
@@ -1252,7 +1247,7 @@ async function main() {
 
     const readOptions = {
       readDiffs: argv.read || false,
-      includeMergeDiffs: argv.rmd || false
+      includeMergeDiffs: false
     };
     
     let commitHistoryResult = await getCommitHistory(undefined, readOptions);
@@ -1371,7 +1366,7 @@ async function main() {
     if (argv.read && commitHashes.length > 0) {
       try {
         commitDiffs = await getCommitDiffs(commitHashes, {
-          includeMergeDiffs: argv.rmd || false
+          includeMergeDiffs: false
         });
       } catch (error) {
         console.warn("Failed to fetch commit diffs:", error.message);

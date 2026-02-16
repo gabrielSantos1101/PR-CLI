@@ -95,7 +95,7 @@ pr-cli
   pr-cli --description "This PR adds a new feature for user authentication."
   ```
 
-- `-r`, `--read`, `-rmd`: Include commit diffs (actual code changes) for more detailed and accurate PR descriptions. This provides the AI with richer context about what was changed, enabling it to generate more comprehensive descriptions based on the actual code modifications.
+- `-r`, `--read`: Include commit diffs (actual code changes) for more detailed and accurate PR descriptions. This provides the AI with richer context about what was changed, enabling it to generate more comprehensive descriptions based on the actual code modifications.
 
   ```bash
   pr-cli --read
@@ -111,13 +111,6 @@ pr-cli
   - Updates sections that need to reflect new changes
   
   This optimization significantly reduces token usage and provides more consistent PR descriptions across updates.
-
-  **Additional option:**
-  
-  - `-rmd`: Include diffs from merge commits. By default, merge commits are excluded to reduce noise.
-    ```bash
-    pr-cli -rmd
-    ```
 
   **Benefits:**
   - More accurate PR descriptions that reflect actual code changes
@@ -138,9 +131,6 @@ pr-cli
   
   # Update existing PR with new changes (automatically uses existing PR as context)
   pr-cli -r --gh --refill
-  
-  # Include merge commits
-  pr-cli -rmd
   
   # Combine with GitHub PR creation
   pr-cli --gh --read --self
@@ -221,11 +211,6 @@ pr-cli --read --gh --refill
 # 2. Get only the NEW commits since last update
 # 3. Ask AI to update the PR preserving existing content
 # 4. Update the PR without confirmation (--refill flag)
-```
-
-#### Include merge commits
-```bash
-pr-cli --read -rmd
 ```
 
 #### Create GitHub PR directly with code analysis
