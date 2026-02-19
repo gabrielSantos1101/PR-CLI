@@ -128,17 +128,51 @@ export async function createGitHubPRWithCLI(
         await fs.writeFile(tempFilePath, prDescription);
 
         const editCmd = `gh pr edit ${currentBranch} --body-file "${tempFilePath}"`;
-        const ghEditOutput = await executeCommand(
-          editCmd,
-          "Updating PR description..."
-        );
-        console.log("GitHub CLI output:\n", ghEditOutput);
+        try {
+          const ghEditOutput = await executeCommand(
+            editCmd,
+            "Updating PR description..."
+          );
+          console.log("GitHub CLI output:\n", ghEditOutput);
 
-        await fs.unlink(tempFilePath);
-        console.log("Pull Request description updated successfully.");
-        return;
+          await fs.unlink(tempFilePath);
+          console.log("Pull Request description updated successfully.");
+          return;
+        } catch (editError) {
+          console.error("Failed to update PR description:", editError.message);
+          
+          if (editError.message.includes("Projects (classic) is being deprecated")) {
+            console.log("\n⚠️  GitHub API Error: Projects (classic) is being deprecated.");
+            console.log("This is a GitHub API issue. You may need to:");
+            console.log("1. Update the PR description manually in the GitHub web interface");
+            console.log("2. Or try updating GitHub CLI to the latest version");
+            console.log("3. Or contact GitHub support if the issue persists");
+          } else {
+            console.log("The PR exists but we couldn't update it. You may need to update it manually.");
+          }
+          
+          console.log(`PR URL: ${existingPr}`);
+          
+          try {
+            await fs.unlink(tempFilePath);
+          } catch (unlinkError) {}
+          return;
+        }
       }
-    } catch (error) {}
+    } catch (error) {
+      console.warn(`Could not check for existing PR: ${error.message}`);
+      
+      if (error.message.includes("Projects (classic) is being deprecated")) {
+        console.log("\n⚠️  GitHub API Error: Projects (classic) is being deprecated.");
+        console.log("This may prevent checking for existing PRs. The tool will try to create a new PR,");
+        console.log("but if a PR already exists, it will fail. You may need to:");
+        console.log("1. Check manually if a PR exists for this branch");
+        console.log("2. Update GitHub CLI to the latest version");
+        console.log("3. Or contact GitHub support if the issue persists");
+      }
+      
+      console.log("Will attempt to create a new PR...");
+    }
 
     try {
       await executeCommand(
