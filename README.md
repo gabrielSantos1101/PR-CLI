@@ -2,6 +2,42 @@
 
 A simple and powerful Command Line Interface (CLI) tool designed to streamline the process of generating Git Pull Request (PR) descriptions. By analyzing your local Git commit history and leveraging AI, PR-CLI helps you create clear, concise, and comprehensive PR descriptions, optionally using predefined templates and supporting multiple languages.
 
+## Features
+
+- **Automated PR Description Generation:** Analyzes your Git commit history to automatically generate a structured PR description.
+- **Conventional Commit Support:** Categorizes commit messages based on conventional commit prefixes (feat, fix, chore, docs, etc.) into organized sections.
+- **PR Template Integration:** Automatically detects and allows you to select from `.github/PULL_REQUEST_TEMPLATE` markdown files to structure your PR description.
+- **AI-Enhanced Content Generation:** Utilizes Google Gemini to intelligently fill in template sections and refine the PR description based on your commit messages.
+- **Smart Update Mode:** When using `--read` on an existing PR, automatically uses the current PR description as context to generate incremental updates, reducing token usage and maintaining consistency.
+- **Multi-language Support:** Allows you to specify the language of your PR template, enabling the AI to generate descriptions in the chosen language.
+- **Clipboard Integration:** Automatically copies the generated PR description to your clipboard for easy pasting.
+
+## Installation
+
+You can install `pr-cli-generator` via npm:
+
+```bash
+npm install -g pr-cli-generator
+```
+
+## Setup Google Gemini API Key
+
+Obtain a `GEMINI_API_KEY` from Google AI Studio.
+Set it as an environment variable:
+
+```bash
+# For Linux/macOS
+export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+
+# For Windows (Command Prompt)
+set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+
+# For Windows (PowerShell)
+$env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+```
+
+Alternatively, you can create a `.env` file in the project root with `GEMINI_API_KEY=YOUR_GEMINI_API_KEY`.
+
 ## Architecture
 
 PR-CLI operates by first analyzing your local Git commit history to extract relevant information. It then leverages an AI model (Google Gemini) to process this information, optionally integrating with predefined PR templates. The tool intelligently fills in template sections and refines the PR description based on your commit messages and chosen language, ultimately providing a structured and comprehensive output.
@@ -53,24 +89,6 @@ $ pr-cli --gh --read --refill
 # Without optimization: ~15,000 tokens (all 5 commits + diffs)
 # With optimization: ~6,000 tokens (existing PR + 2 new commits)
 # Savings: 60% reduction in token usage!
-```
-
-## Features
-
-- **Automated PR Description Generation:** Analyzes your Git commit history to automatically generate a structured PR description.
-- **Conventional Commit Support:** Categorizes commit messages based on conventional commit prefixes (feat, fix, chore, docs, etc.) into organized sections.
-- **PR Template Integration:** Automatically detects and allows you to select from `.github/PULL_REQUEST_TEMPLATE` markdown files to structure your PR description.
-- **AI-Enhanced Content Generation:** Utilizes Google Gemini to intelligently fill in template sections and refine the PR description based on your commit messages.
-- **Smart Update Mode:** When using `--read` on an existing PR, automatically uses the current PR description as context to generate incremental updates, reducing token usage and maintaining consistency.
-- **Multi-language Support:** Allows you to specify the language of your PR template, enabling the AI to generate descriptions in the chosen language.
-- **Clipboard Integration:** Automatically copies the generated PR description to your clipboard for easy pasting.
-
-## Installation
-
-You can install `pr-cli-generator` via npm:
-
-```bash
-npm install -g pr-cli-generator
 ```
 
 ## Usage
@@ -159,25 +177,7 @@ pr-cli
   pr-cli --gh --draft
   ```
 
-### Setup Google Gemini API Key
-
-Obtain a `GEMINI_API_KEY` from Google AI Studio.
-Set it as an environment variable:
-
-```bash
-# For Linux/macOS
-export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-
-# For Windows (Command Prompt)
-set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-
-# For Windows (PowerShell)
-$env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-```
-
-Alternatively, you can create a `.env` file in the project root with `GEMINI_API_KEY=YOUR_GEMINI_API_KEY`.
-
-### Workflow
+## Workflow
 
 1.  **Commit your changes:** Ensure your commit messages follow a consistent convention (e.g., Conventional Commits).
 2.  **Run PR-CLI:** Execute `node index.js` in your repository.

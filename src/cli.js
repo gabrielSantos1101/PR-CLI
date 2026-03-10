@@ -30,7 +30,7 @@ async function main() {
     const updateAvailable = await checkForUpdates();
     await handleUpdate(updateAvailable);
 
-    const argv = yargs(hideBin(process.argv))
+    let argv = yargs(hideBin(process.argv))
       .option("copy", {
         alias: "c",
         type: "boolean",
@@ -66,6 +66,10 @@ async function main() {
         description: "Create the PR as a draft",
       })
       .help().argv;
+
+    if (argv.refill && argv.self) {
+      argv.self = false;
+    }
 
     const readOptions = {
       readDiffs: argv.read || false,
