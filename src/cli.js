@@ -52,11 +52,6 @@ async function main() {
         type: "boolean",
         description: "Include commit diffs for more detailed PR descriptions",
       })
-      .option("refill", {
-        type: "boolean",
-        description:
-          "When a PR already exists for the branch, overwrite its description without asking for confirmation",
-      })
       .option("self", {
         type: "boolean",
         description: "Assign the PR to yourself",
@@ -66,10 +61,6 @@ async function main() {
         description: "Create the PR as a draft",
       })
       .help().argv;
-
-    if (argv.refill && argv.self) {
-      argv.self = false;
-    }
 
     const readOptions = {
       readDiffs: argv.read || false,
@@ -116,36 +107,26 @@ async function main() {
         const commitCount = parseInt(commitCountStr, 10);
 
         if (commitCount > 0) {
-          if (argv.refill) {
+          const { confirmCommits } = await inquirer.prompt([
+            {
+              type: "confirm",
+              name: "confirmCommits",
+              message: `Found ${commitCount} commits on branch "${currentBranch}". Do you want to use them to create the PR?`,
+              default: true,
+            },
+          ]);
+
+          if (confirmCommits) {
             commitHistoryResult = await getCommitHistory(commitCount, readOptions);
-            commitMessages = Array.isArray(commitHistoryResult) 
-              ? commitHistoryResult 
+            commitMessages = Array.isArray(commitHistoryResult)
+              ? commitHistoryResult
               : commitHistoryResult.messages;
-            commitHashes = Array.isArray(commitHistoryResult) 
-              ? [] 
+            commitHashes = Array.isArray(commitHistoryResult)
+              ? []
               : commitHistoryResult.hashes;
           } else {
-            const { confirmCommits } = await inquirer.prompt([
-              {
-                type: "confirm",
-                name: "confirmCommits",
-                message: `Found ${commitCount} commits on branch "${currentBranch}". Do you want to use them to create the PR?`,
-                default: true,
-              },
-            ]);
-
-            if (confirmCommits) {
-              commitHistoryResult = await getCommitHistory(commitCount, readOptions);
-              commitMessages = Array.isArray(commitHistoryResult) 
-                ? commitHistoryResult 
-                : commitHistoryResult.messages;
-              commitHashes = Array.isArray(commitHistoryResult) 
-                ? [] 
-                : commitHistoryResult.hashes;
-            } else {
-              console.log("Exiting without generating PR description.");
-              return;
-            }
+            console.log("Exiting without generating PR description.");
+            return;
           }
         } else {
           console.log(

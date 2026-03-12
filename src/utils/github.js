@@ -100,24 +100,15 @@ export async function createGitHubPRWithCLI(
           `A pull request for branch "${currentBranch}" already exists: ${existingPr}`
         );
 
-        let overwritePr = true;
-
-        if (!argv.refill) {
-          const promptResult = await inquirer.prompt([
-            {
-              type: "confirm",
-              name: "overwritePr",
-              message:
-                "A PR for this branch already exists. Do you want to overwrite its description with the newly generated content?",
-              default: true,
-            },
-          ]);
-          overwritePr = promptResult.overwritePr;
-        } else {
-          console.log(
-            "--refill flag detected; overwriting existing PR description without confirmation."
-          );
-        }
+        const { overwritePr } = await inquirer.prompt([
+          {
+            type: "confirm",
+            name: "overwritePr",
+            message:
+              "A PR for this branch already exists. Do you want to overwrite its description with the newly generated content?",
+            default: true,
+          },
+        ]);
 
         if (!overwritePr) {
           console.log("Keeping the current PR description. Exiting.");
