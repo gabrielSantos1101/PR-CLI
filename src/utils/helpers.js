@@ -1,5 +1,6 @@
 import { exec } from "child_process";
 import ora from "ora";
+import { debug } from "./debug.js";
 
 /**
  * Executes a shell command and returns its output.
@@ -11,12 +12,14 @@ export async function executeCommand(
   spinnerText = "Executing command...",
   logSuccess = true
 ) {
+  debug(`Executing: ${command}`);
   const spinner = ora(spinnerText).start();
   return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => {
       if (error) {
         spinner.fail(`Command failed: ${command}`);
         console.error(`exec error: ${error}`);
+        debug(`Command error stack: ${error.stack}`);
         return reject(error);
       }
       if (stderr) {
@@ -27,6 +30,7 @@ export async function executeCommand(
       } else {
         spinner.stop();
       }
+      debug(`stdout (${stdout.trim().length} chars): ${stdout.trim().substring(0, 200)}${stdout.trim().length > 200 ? "..." : ""}`);
       resolve(stdout.trim());
     });
   });

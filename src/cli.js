@@ -14,6 +14,7 @@ import {
 } from "./services/pr.js";
 
 import { executeCommand } from "./utils/helpers.js";
+import { setDebug, debug } from "./utils/debug.js";
 import { getCommitHistory, getCommitDiffs } from "./utils/git.js";
 import {
   generateAIBranchType,
@@ -60,7 +61,14 @@ async function main() {
         type: "boolean",
         description: "Create the PR as a draft",
       })
+      .option("debug", {
+        type: "boolean",
+        description: "Enable verbose debug logging to help diagnose errors",
+      })
       .help().argv;
+
+    setDebug(argv.debug);
+    debug("argv:", JSON.stringify(argv, null, 2));
 
     const readOptions = {
       readDiffs: argv.read || false,
@@ -68,13 +76,16 @@ async function main() {
     };
     
     let commitHistoryResult = await getCommitHistory(undefined, readOptions);
-    
-    let commitMessages = Array.isArray(commitHistoryResult) 
-      ? commitHistoryResult 
+
+    let commitMessages = Array.isArray(commitHistoryResult)
+      ? commitHistoryResult
       : commitHistoryResult.messages;
-    let commitHashes = Array.isArray(commitHistoryResult) 
-      ? [] 
+    let commitHashes = Array.isArray(commitHistoryResult)
+      ? []
       : commitHistoryResult.hashes;
+
+    debug(`commitMessages count: ${commitMessages.length}`);
+    debug(`commitHashes count: ${commitHashes.length}`);
 
     if (commitMessages.length === 0) {
       console.log("No new local commits found since the last push to origin.");
@@ -84,6 +95,7 @@ async function main() {
           "Getting current branch...",
           false
         );
+        debug(`currentBranch: ${currentBranch}`);
 
         let baseBranch = "main";
         try {
@@ -93,7 +105,9 @@ async function main() {
             false
           );
           baseBranch = remoteHead.split("/").pop();
+          debug(`remoteHead resolved to baseBranch: ${baseBranch}`);
         } catch (e) {
+          debug(`Failed to get remote HEAD: ${e.message}`);
           console.warn(
             "Could not determine remote default branch, falling back to 'main'."
           );
@@ -105,6 +119,7 @@ async function main() {
           false
         );
         const commitCount = parseInt(commitCountStr, 10);
+        debug(`commitCount on branch vs ${baseBranch}: ${commitCount}`);
 
         if (commitCount > 0) {
           const { confirmCommits } = await inquirer.prompt([
@@ -135,6 +150,7 @@ async function main() {
           return;
         }
       } catch (error) {
+        debug(`Error in commit count flow: ${error.message}\n${error.stack}`);
         console.log(
           "Could not automatically count commits. Falling back to manual input."
         );
@@ -169,13 +185,18 @@ async function main() {
       }
     }
 
+    debug(`Final commitMessages: ${JSON.stringify(commitMessages)}`);
+
     let commitDiffs = null;
     if (argv.read && commitHashes.length > 0) {
+      debug(`Fetching diffs for ${commitHashes.length} commits: ${commitHashes.join(", ")}`);
       try {
         commitDiffs = await getCommitDiffs(commitHashes, {
           includeMergeDiffs: false
         });
+        debug(`Fetched ${commitDiffs.length} diffs`);
       } catch (error) {
+        debug(`getCommitDiffs error: ${error.message}\n${error.stack}`);
         console.warn("Failed to fetch commit diffs:", error.message);
         console.log("Continuing with commit messages only.");
         commitDiffs = null;
@@ -231,15 +252,22 @@ async function main() {
           "Getting current branch...",
           false
         );
+        debug(`Looking for existing PR description for branch: ${currentBranch}`);
         existingPRDescription = await getExistingPRDescription(currentBranch);
         if (existingPRDescription) {
           console.log("✓ Found existing PR description. Will use it as context for updates.");
+          debug(`Existing PR description length: ${existingPRDescription.length} chars`);
+        } else {
+          debug("No existing PR description found.");
         }
-      } catch (error) {}
+      } catch (error) {
+        debug(`Error fetching existing PR description: ${error.message}`);
+      }
     }
 
     let prDescription;
     if (templateContent) {
+      debug(`Using template (${templateContent.length} chars), language: ${templateLanguage}, mode: ${existingPRDescription ? "UPDATE" : "CREATE"}`);
       const aiGeneratedContent = await generateAIContent(
         commitMessages,
         templateContent,

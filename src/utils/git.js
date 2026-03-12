@@ -1,5 +1,6 @@
 import ora from "ora";
 import { executeCommand, isValidCommitHash } from "./helpers.js";
+import { debug } from "./debug.js";
 
 /**
  * Truncates a diff to a maximum size while preserving structure.
@@ -94,15 +95,18 @@ export async function isMergeCommit(commitHash) {
     console.warn(`Invalid commit hash format in isMergeCommit: "${commitHash}"`);
     return false;
   }
-  
+
   try {
     const parents = await executeCommand(
       `git rev-list --parents -n 1 ${commitHash}`,
       "",
       false
     );
-    return parents.trim().split(/\s+/).length > 2;
+    const isMerge = parents.trim().split(/\s+/).length > 2;
+    debug(`isMergeCommit(${commitHash}): ${isMerge}`);
+    return isMerge;
   } catch (error) {
+    debug(`isMergeCommit error for ${commitHash}: ${error.message}`);
     return false;
   }
 }
@@ -120,12 +124,13 @@ export async function getCommitDiffs(commitHashes, options = {}) {
     console.error("Invalid input: commitHashes must be an array");
     return [];
   }
-  
+
   if (commitHashes.length === 0) {
     console.warn("No commit hashes provided to fetch diffs");
     return [];
   }
-  
+
+  debug(`getCommitDiffs: ${commitHashes.length} hashes, includeMergeDiffs=${includeMergeDiffs}`);
   const spinner = ora("Fetching commit diffs...").start();
   
   const diffs = [];
@@ -175,7 +180,8 @@ export async function getCommitDiffs(commitHashes, options = {}) {
         : `git show --format="" --no-color ${hash}`;
       
       let diffContent = await executeCommand(diffCommand, "", false);
-      
+      debug(`Diff for ${hash}: ${diffContent.length} chars raw`);
+
       const hasBinaryFiles = diffContent.includes('Binary files');
       if (hasBinaryFiles) {
         binaryFilesFiltered++;
@@ -205,6 +211,7 @@ export async function getCommitDiffs(commitHashes, options = {}) {
     } catch (error) {
       const errorMsg = `Failed to fetch diff for commit ${hash}: ${error.message}`;
       console.warn(`⚠ ${errorMsg}`);
+      debug(`getCommitDiffs error stack for ${hash}: ${error.stack}`);
       skippedCount++;
       fetchFailures++;
       diffs.push({ 
@@ -259,6 +266,7 @@ export async function getCommitDiffs(commitHashes, options = {}) {
  */
 export async function getCommitHistory(count, options = {}) {
   const { readDiffs = false, includeMergeDiffs = false } = options;
+  debug(`getCommitHistory: count=${count ?? "auto"}, readDiffs=${readDiffs}`);
   const spinner = ora("Fetching commit history...").start();
   try {
     let commitLogs;
@@ -308,6 +316,7 @@ export async function getCommitHistory(count, options = {}) {
 
     spinner.succeed("Commit history fetched.");
     const messages = commitLogs.split("\n").filter(Boolean);
+    debug(`getCommitHistory result: ${messages.length} commits, ${commitHashes.length} hashes`);
 
     if (readDiffs) {
       return {
@@ -323,6 +332,7 @@ export async function getCommitHistory(count, options = {}) {
     console.error(
       "Failed to get Git commit history. Ensure you are in a Git repository and have pushed to origin."
     );
+    debug(`getCommitHistory error: ${error.message}\n${error.stack}`);
     return readDiffs ? { messages: [], hashes: [], count: 0 } : [];
   }
 }

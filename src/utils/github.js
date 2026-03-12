@@ -3,6 +3,7 @@ import path from "path";
 import inquirer from "inquirer";
 import clipboardy from "clipboardy";
 import { executeCommand } from "./helpers.js";
+import { debug } from "./debug.js";
 
 /**
  * Parses a GitHub repository URL to extract the owner and repository name.
@@ -32,11 +33,13 @@ export async function openGitHubPRInBrowser(
   currentBranch,
   baseBranch
 ) {
+  debug(`openGitHubPRInBrowser: repoUrl=${repoUrl}, branch=${currentBranch}, base=${baseBranch}`);
   const repoInfo = parseGitHubRepoUrl(repoUrl);
   if (!repoInfo) {
     console.error("Could not parse GitHub repository URL:", repoUrl);
     return;
   }
+  debug(`Parsed repo: ${repoInfo.owner}/${repoInfo.repo}`);
 
   const { owner, repo } = repoInfo;
   const encodedDescription = encodeURIComponent(prDescription);
@@ -85,6 +88,7 @@ export async function createGitHubPRWithCLI(
   baseBranch,
   argv
 ) {
+  debug(`createGitHubPRWithCLI: branch=${currentBranch}, base=${baseBranch}, self=${argv.self}, draft=${argv.draft}`);
   try {
     await executeCommand("gh --version", "Checking for GitHub CLI...");
     console.log("GitHub CLI detected.");
@@ -95,6 +99,7 @@ export async function createGitHubPRWithCLI(
         `Checking for existing PR for branch "${currentBranch}"...`,
         false
       );
+      debug(`existingPr check result: "${existingPr}"`);
       if (existingPr) {
         console.log(
           `A pull request for branch "${currentBranch}" already exists: ${existingPr}`
@@ -151,6 +156,7 @@ export async function createGitHubPRWithCLI(
         }
       }
     } catch (error) {
+      debug(`existingPr check error: ${error.message}\n${error.stack}`);
       console.warn(`Could not check for existing PR: ${error.message}`);
       
       if (error.message.includes("Projects (classic) is being deprecated")) {
@@ -205,6 +211,7 @@ export async function createGitHubPRWithCLI(
     await fs.writeFile(tempFilePath, prDescription);
 
     let ghCommand = `gh pr create --title "${prTitle}" --body-file "${tempFilePath}" --base "${baseBranch}" --head "${currentBranch}"`;
+    debug(`gh create command: ${ghCommand}`);
 
     if (argv.self) {
       ghCommand += ' --assignee "@me"';
@@ -220,6 +227,7 @@ export async function createGitHubPRWithCLI(
 
     console.log("Pull Request created successfully via GitHub CLI.");
   } catch (error) {
+    debug(`createGitHubPRWithCLI top-level error: ${error.message}\n${error.stack}`);
     console.error("Failed to create PR using GitHub CLI:", error.message);
     console.log(
       "Please ensure GitHub CLI is installed and you are logged in (`gh auth login`)."
