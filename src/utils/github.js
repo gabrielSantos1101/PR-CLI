@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import inquirer from "inquirer";
 import clipboardy from "clipboardy";
-import { executeCommand } from "./helpers.js";
+import { executeCommand, executeInteractiveCommand } from "./helpers.js";
 import { debug } from "./debug.js";
 
 /**
@@ -125,11 +125,7 @@ export async function createGitHubPRWithCLI(
 
         const editCmd = `gh pr edit ${currentBranch} --body-file "${tempFilePath}"`;
         try {
-          const ghEditOutput = await executeCommand(
-            editCmd,
-            "Updating PR description..."
-          );
-          console.log("GitHub CLI output:\n", ghEditOutput);
+          await executeInteractiveCommand(editCmd, "Updating PR description...");
 
           await fs.unlink(tempFilePath);
           console.log("Pull Request description updated successfully.");
@@ -190,7 +186,7 @@ export async function createGitHubPRWithCLI(
 
       if (publishBranch) {
         try {
-          await executeCommand(
+          await executeInteractiveCommand(
             `git push --set-upstream origin ${currentBranch}`,
             `Publishing branch "${currentBranch}"...`
           );
@@ -211,7 +207,6 @@ export async function createGitHubPRWithCLI(
     await fs.writeFile(tempFilePath, prDescription);
 
     let ghCommand = `gh pr create --title "${prTitle}" --body-file "${tempFilePath}" --base "${baseBranch}" --head "${currentBranch}"`;
-    debug(`gh create command: ${ghCommand}`);
 
     if (argv.self) {
       ghCommand += ' --assignee "@me"';
@@ -220,8 +215,10 @@ export async function createGitHubPRWithCLI(
     if (argv.draft) {
       ghCommand += " --draft";
     }
-    const ghOutput = await executeCommand(ghCommand, "Creating GitHub PR...");
-    console.log("GitHub CLI output:\n", ghOutput);
+
+    debug(`gh create command: ${ghCommand}`);
+    console.log("Creating PR using gh pr create...");
+    await executeInteractiveCommand(ghCommand);
 
     await fs.unlink(tempFilePath);
 

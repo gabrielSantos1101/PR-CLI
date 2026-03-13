@@ -1,4 +1,4 @@
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
 import ora from "ora";
 import { debug } from "./debug.js";
 
@@ -32,6 +32,38 @@ export async function executeCommand(
       }
       debug(`stdout (${stdout.trim().length} chars): ${stdout.trim().substring(0, 200)}${stdout.trim().length > 200 ? "..." : ""}`);
       resolve(stdout.trim());
+    });
+  });
+}
+
+/**
+ * Executes a shell command with the terminal attached (stdin/stdout/stderr inherited).
+ * Use this for interactive commands that may prompt for input (e.g. gh auth).
+ * @param {string} command The command to execute.
+ * @param {string} spinnerText Text shown before handing off the terminal.
+ * @returns {Promise<void>}
+ */
+export async function executeInteractiveCommand(command, spinnerText = "") {
+  debug(`Executing interactive: ${command}`);
+  if (spinnerText) {
+    const spinner = ora(spinnerText).start();
+    spinner.stop();
+  }
+  return new Promise((resolve, reject) => {
+    const [cmd, ...args] = command.split(/\s+(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+    const child = spawn(cmd, args, { stdio: "inherit", shell: true });
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const error = new Error(`Command exited with code ${code}: ${command}`);
+        debug(`Interactive command failed with code ${code}`);
+        return reject(error);
+      }
+      debug(`Interactive command completed: ${command}`);
+      resolve();
+    });
+    child.on("error", (error) => {
+      debug(`Interactive command error: ${error.message}`);
+      reject(error);
     });
   });
 }
