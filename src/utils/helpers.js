@@ -39,6 +39,60 @@ export async function executeCommand(
 }
 
 /**
+ * Executes a shell command capturing stdout while keeping stdin/stderr attached to the terminal.
+ * This allows the command to prompt the user for input (e.g. 2FA codes) while still capturing output.
+ * @param {string} command The command to execute.
+ * @param {string} spinnerText Text shown while executing.
+ * @param {boolean} logSuccess Whether to log success.
+ * @returns {Promise<string>} The command's stdout.
+ */
+export async function executeCommandInteractive(
+	command,
+	spinnerText = "Executing command...",
+	logSuccess = true,
+) {
+	debug(`Executing (interactive capture): ${command}`);
+	const spinner = ora(spinnerText).start();
+	return new Promise((resolve, reject) => {
+		const [cmd, ...args] = command.split(/\s+(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+		const child = spawn(cmd, args, {
+			stdio: ["inherit", "pipe", "inherit"],
+			shell: true,
+		});
+
+		let stdout = "";
+		child.stdout.on("data", (data) => {
+			stdout += data.toString();
+		});
+
+		child.on("close", (code) => {
+			if (code !== 0) {
+				spinner.fail(`Command failed: ${command}`);
+				debug(`Command failed with code ${code}`);
+				return reject(
+					new Error(`Command exited with code ${code}: ${command}`),
+				);
+			}
+			if (logSuccess) {
+				spinner.succeed(`Command successful: ${command}`);
+			} else {
+				spinner.stop();
+			}
+			debug(
+				`stdout (${stdout.trim().length} chars): ${stdout.trim().substring(0, 200)}${stdout.trim().length > 200 ? "..." : ""}`,
+			);
+			resolve(stdout.trim());
+		});
+
+		child.on("error", (error) => {
+			spinner.fail(`Command failed: ${command}`);
+			debug(`Command error: ${error.message}`);
+			reject(error);
+		});
+	});
+}
+
+/**
  * Executes a shell command with the terminal attached (stdin/stdout/stderr inherited).
  * Use this for interactive commands that may prompt for input (e.g. gh auth).
  * @param {string} command The command to execute.

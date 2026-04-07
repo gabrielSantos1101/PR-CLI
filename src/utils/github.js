@@ -3,7 +3,11 @@ import path from "node:path";
 import clipboardy from "clipboardy";
 import inquirer from "inquirer";
 import { debug } from "./debug.js";
-import { executeCommand, executeInteractiveCommand } from "./helpers.js";
+import {
+	executeCommand,
+	executeCommandInteractive,
+	executeInteractiveCommand,
+} from "./helpers.js";
 
 /**
  * Parses a GitHub repository URL to extract the owner and repository name.
@@ -98,7 +102,20 @@ export async function createGitHubPRWithCLI(
 		console.log("GitHub CLI detected.");
 
 		try {
-			const existingPr = await executeCommand(
+			await executeCommand(
+				"gh auth status",
+				"Checking GitHub authentication...",
+				false,
+			);
+		} catch (_authError) {
+			console.log(
+				"You are not authenticated with GitHub CLI. Please log in:",
+			);
+			await executeInteractiveCommand("gh auth login");
+		}
+
+		try {
+			const existingPr = await executeCommandInteractive(
 				`gh pr view ${currentBranch} --json url --jq .url`,
 				`Checking for existing PR for branch "${currentBranch}"...`,
 				false,

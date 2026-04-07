@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import inquirer from "inquirer";
 import { COMMIT_TYPES } from "../constants.js";
-import { executeCommand } from "../utils/helpers.js";
+import { executeCommandInteractive } from "../utils/helpers.js";
 
 /**
  * Checks for Pull Request templates in the `.github` folder.
@@ -133,7 +133,7 @@ export function generatePRDescription(
  */
 export async function getExistingPRDescription(branchName) {
 	try {
-		const prBody = await executeCommand(
+		const prBody = await executeCommandInteractive(
 			`gh pr view ${branchName} --json body --jq .body`,
 			`Fetching existing PR description for branch "${branchName}"...`,
 			false,
