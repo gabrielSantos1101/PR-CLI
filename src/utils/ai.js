@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import ora from "ora";
 import { COMMIT_TYPES } from "../constants.js";
 import { formatDiffsForAI } from "../services/commit.js";
+import { debug } from "./debug.js";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -20,6 +21,7 @@ export async function generateAIBranchType(commitMessages) {
     return "feat";
   }
 
+  debug(`generateAIBranchType: ${commitMessages.length} commits, model: gemini-2.5-flash`);
   const spinner = ora("Generating AI branch type...").start();
   const prompt = `
 You are an expert in inferring Git conventional commit types from commit messages.
@@ -40,6 +42,7 @@ Suggested Branch Type:
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const generatedType = response.text().trim().toLowerCase();
+    debug(`AI branch type raw response: "${generatedType}"`);
     if (COMMIT_TYPES[generatedType]) {
       spinner.succeed("AI branch type generated.");
       return generatedType;
@@ -51,6 +54,7 @@ Suggested Branch Type:
   } catch (error) {
     spinner.fail("Error generating AI branch type.");
     console.error("Error generating AI branch type:", error.message);
+    debug(`generateAIBranchType error stack: ${error.stack}`);
     return "feat";
   }
 }
@@ -68,6 +72,7 @@ export async function generateAIBranchName(commitMessages) {
     return "";
   }
 
+  debug(`generateAIBranchName: ${commitMessages.length} commits`);
   const spinner = ora("Generating AI branch name...").start();
   const prompt = `
 You are an expert in generating very short, objective, kebab-cased Git branch names following conventional commit types.
@@ -92,6 +97,7 @@ Generated Branch Name (type/description-kebab-case):
     const result = await model.generateContent(prompt);
     const response = result.response;
     const generatedName = response.text().trim();
+    debug(`AI branch name raw response: "${generatedName}"`);
     const parts = generatedName.split("/");
     if (parts.length === 2 && COMMIT_TYPES[parts[0]]) {
       spinner.succeed("AI branch name generated.");
@@ -104,6 +110,7 @@ Generated Branch Name (type/description-kebab-case):
   } catch (error) {
     spinner.fail("Error generating AI branch name.");
     console.error("Error generating AI branch name:", error.message);
+    debug(`generateAIBranchName error stack: ${error.stack}`);
     return "";
   }
 }
@@ -131,8 +138,9 @@ export async function generateAIContent(
     return "";
   }
 
+  debug(`generateAIContent: ${commitMessages.length} commits, diffs=${commitDiffs !== null}, isUpdate=${existingPRDescription !== null}, lang=${templateLanguage}`);
   const spinner = ora("Generating AI-enhanced PR description...").start();
-  
+
   const isUpdate = existingPRDescription !== null;
   const promptMode = isUpdate ? "UPDATE" : "CREATE";
   
@@ -181,6 +189,7 @@ ${templateContent}` : ''}
 Generated PR Description:
 `;
 
+  debug(`AI prompt length: ${prompt.length} chars (~${Math.round(prompt.length / 4)} tokens estimated)`);
   try {
     const result = await model.generateContent(prompt);
     const response = result.response;
@@ -205,6 +214,7 @@ Generated PR Description:
   } catch (error) {
     spinner.fail("Error generating AI content.");
     console.error("Error generating AI content:", error.message);
+    debug(`generateAIContent error stack: ${error.stack}`);
     
     const errorMsg = error.message.toLowerCase();
     if (errorMsg.includes('token') || errorMsg.includes('limit') || errorMsg.includes('too large') || errorMsg.includes('quota')) {
