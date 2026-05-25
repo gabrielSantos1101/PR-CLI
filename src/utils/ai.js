@@ -4,8 +4,15 @@ import { COMMIT_TYPES } from "../constants.js";
 import { formatDiffsForAI } from "../services/commit.js";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({
+  model: GEMINI_MODEL,
+  generationConfig: {
+    temperature: 0.2,
+    maxOutputTokens: 2048,
+  },
+});
 
 /**
  * Generates a suggested branch type using Google Gemini.
@@ -132,23 +139,33 @@ export async function generateAIContent(
   }
 
   const spinner = ora("Generating AI-enhanced PR description...").start();
-  
+
   const isUpdate = existingPRDescription !== null;
-  const promptMode = isUpdate ? "UPDATE" : "CREATE";
-  
+
   const prompt = `
-You are an expert in writing Git Pull Request descriptions.
-Your task is to ${isUpdate ? 'UPDATE an existing' : 'generate a new'} Pull Request description.
+You are a concise Pull Request description editor.
+Return only the final markdown PR description. Do not wrap it in code fences.
+
+Goal:
+${isUpdate ? "Update the existing PR description with the new changes." : "Fill the provided PR template with the changes."}
+
+Style rules:
+1. Be brief and reviewer-focused.
+2. Preserve the existing template structure, headings, checklist items, comments, placeholders, and issue tags.
+3. Do not add new headings unless the template explicitly needs content under an existing heading.
+4. Prefer short bullets over paragraphs.
+5. Use at most 5 bullets per section.
+6. Keep each bullet to one sentence and under 16 words.
+7. Avoid implementation narration, file-by-file summaries, marketing tone, and generic filler.
+8. If there is no evidence for a section, keep placeholders as-is or write "N/A".
+9. Generate the content in this language: ${templateLanguage}.
 
 ${isUpdate ? `
-**UPDATE MODE:**
-You are updating an existing PR description with new changes. The existing PR description is provided below.
-Your task is to:
-1. Keep all the existing content that is still relevant
-2. Add information about the new changes from the new commit messages and diffs
-3. Update sections that need to reflect the new changes
-4. Maintain consistency with the existing description style and structure
-5. Do NOT remove or overwrite existing content unless it's directly contradicted by new changes
+Update mode rules:
+1. Return the complete updated PR description, not a patch or summary.
+2. Keep existing content that is still accurate.
+3. Add only new, non-duplicated information from the new commits and diffs.
+4. Remove or revise existing content only when contradicted by the new changes.
 
 Existing PR Description:
 ${existingPRDescription}
@@ -156,16 +173,7 @@ ${existingPRDescription}
 ---
 
 ` : ''}
-
-Here's the process:
-1.  **Analyze Commit Messages:** Review the provided Git commit messages${isUpdate ? ' (these are NEW commits since the last update)' : ''}.
-${commitDiffs ? '2.  **Analyze Code Changes:** Review the actual code diffs to understand what was modified, added, or removed.' : ''}
-${commitDiffs ? '3.  **Synthesize Information:** Combine insights from both commit messages and code changes.' : '2.  **Fill Template Sections:** Use the information from the commit messages to fill in the relevant sections of the PR template.'}
-${commitDiffs ? `4.  **${isUpdate ? 'Update' : 'Fill'} Template Sections:** ${isUpdate ? 'Update the existing PR description by adding information about new changes' : 'Use the information from both commit messages and code changes to fill in the relevant sections of the PR template'}.` : `3.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.`}
-${commitDiffs ? '5.  **Prioritize Clarity and Detail:** Ensure the generated content is easy to understand and provides sufficient detail for reviewers.' : '4.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it\'s a placeholder like #ISSUE_NUMBER) or indicate that it\'s not applicable (e.g., "N/A" or "No relevant changes").'}
-${commitDiffs ? '6.  **Handle Missing Information:** If a section in the template cannot be directly filled by the commit messages, either leave it as is (if it\'s a placeholder like #ISSUE_NUMBER) or indicate that it\'s not applicable (e.g., "N/A" or "No relevant changes").' : '5.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.'}
-${commitDiffs ? '7.  **Maintain Markdown Formatting:** Preserve the markdown structure of the template.' : '6.  **Generate in the specified language:** The PR description should be generated in the language specified by \'templateLanguage\'.'}
-${commitDiffs ? '8.  **Generate in the specified language:** The PR description should be generated in the language specified by \'templateLanguage\'.' : ''}
+Use commit messages and diffs as evidence, but summarize outcomes rather than listing files.
 
 ${isUpdate ? 'New ' : ''}Commit Messages:
 ${commitMessages.join("\n")}
