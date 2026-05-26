@@ -151,7 +151,7 @@ ${isUpdate ? "Update the existing PR description with the new changes." : "Fill 
 
 Style rules:
 1. Be brief and reviewer-focused.
-2. Preserve the existing template structure, headings, checklist items, comments, placeholders, and issue tags.
+2. Use the PR template as the canonical structure for the final description.
 3. Do not add new headings unless the template explicitly needs content under an existing heading.
 4. Prefer short bullets over paragraphs.
 5. Use at most 5 bullets per section.
@@ -160,12 +160,17 @@ Style rules:
 8. If there is no evidence for a section, keep placeholders as-is or write "N/A".
 9. Generate the content in this language: ${templateLanguage}.
 
+PR Template (Language: ${templateLanguage}):
+${templateContent}
+
 ${isUpdate ? `
 Update mode rules:
 1. Return the complete updated PR description, not a patch or summary.
-2. Keep existing content that is still accurate.
-3. Add only new, non-duplicated information from the new commits and diffs.
-4. Remove or revise existing content only when contradicted by the new changes.
+2. Rebuild the final description in the same order and shape as the PR template.
+3. Carry over existing filled content, manual notes, checklist states, placeholders, and issue tags that are still accurate.
+4. Add only new, non-duplicated information from the new commits and diffs.
+5. Remove or revise existing content only when contradicted by the new changes.
+6. If existing content does not map to the template, keep it only when it is useful to reviewers and place it in the closest matching section.
 
 Existing PR Description:
 ${existingPRDescription}
@@ -182,9 +187,6 @@ ${commitDiffs ? formatDiffsForAI(commitDiffs, commitMessages) : ''}
 
 Developer's Description of ${isUpdate ? 'New ' : ''}Work:
 ${devDescription || "No additional description provided."}
-
-${!isUpdate ? `PR Template (Language: ${templateLanguage}):
-${templateContent}` : ''}
 
 Generated PR Description:
 `;
