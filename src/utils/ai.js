@@ -10,7 +10,7 @@ const model = genAI.getGenerativeModel({
   model: GEMINI_MODEL,
   generationConfig: {
     temperature: 0.2,
-    maxOutputTokens: 2048,
+    maxOutputTokens: 4096,
   },
 });
 
@@ -143,22 +143,31 @@ export async function generateAIContent(
   const isUpdate = existingPRDescription !== null;
 
   const prompt = `
-You are a concise Pull Request description editor.
+You are a senior Pull Request description analyst and editor.
 Return only the final markdown PR description. Do not wrap it in code fences.
 
 Goal:
 ${isUpdate ? "Update the existing PR description with the new changes." : "Fill the provided PR template with the changes."}
 
 Style rules:
-1. Be brief and reviewer-focused.
+1. Be reviewer-focused: explain what changed, why it matters, how to verify it, and any risks or follow-ups.
 2. Use the PR template as the canonical structure for the final description.
-3. Do not add new headings unless the template explicitly needs content under an existing heading.
-4. Prefer short bullets over paragraphs.
-5. Use at most 5 bullets per section.
-6. Keep each bullet to one sentence and under 16 words.
-7. Avoid implementation narration, file-by-file summaries, marketing tone, and generic filler.
-8. If there is no evidence for a section, keep placeholders as-is or write "N/A".
-9. Generate the content in this language: ${templateLanguage}.
+3. Preserve the template's headings, order, comments, checklist items, issue sections, and evidence sections.
+4. Do not add new top-level headings unless the selected template has no place for essential reviewer context.
+5. Use concise bullets, but include enough detail for a reviewer to understand the practical impact.
+6. For small PRs, keep sections short. For large, cross-cutting, risky, or architectural PRs, use grouped bullets with subsystem names.
+7. Do not invent details. Base content on commit messages, diffs, the existing PR body, and the developer description.
+8. Avoid noisy file-by-file dumps, but name important files/modules when that helps reviewers navigate the change.
+9. Keep placeholders or write "N/A" only when there is genuinely no evidence for that section.
+10. Generate the content in this language: ${templateLanguage}.
+
+Content judgment:
+1. Prefer "useful and complete" over artificially short.
+2. Include concrete testing steps when the template asks for tests, QA, validation, or evidence.
+3. Include related issue references when provided by commits, existing content, or developer description.
+4. Preserve checklist state from the template or existing PR; only check an item when the evidence supports it.
+5. Mention limitations, known gaps, rollback notes, or follow-ups when the evidence points to them.
+6. Summarize broad changes by concern or subsystem, not by every individual file.
 
 PR Template (Language: ${templateLanguage}):
 ${templateContent}
@@ -166,11 +175,12 @@ ${templateContent}
 ${isUpdate ? `
 Update mode rules:
 1. Return the complete updated PR description, not a patch or summary.
-2. Rebuild the final description in the same order and shape as the PR template.
+2. Rebuild the final description in the same order and shape as the selected PR template.
 3. Carry over existing filled content, manual notes, checklist states, placeholders, and issue tags that are still accurate.
 4. Add only new, non-duplicated information from the new commits and diffs.
 5. Remove or revise existing content only when contradicted by the new changes.
 6. If existing content does not map to the template, keep it only when it is useful to reviewers and place it in the closest matching section.
+7. If the existing PR was already detailed and accurate, preserve that level of useful detail instead of compressing it.
 
 Existing PR Description:
 ${existingPRDescription}
@@ -178,7 +188,7 @@ ${existingPRDescription}
 ---
 
 ` : ''}
-Use commit messages and diffs as evidence, but summarize outcomes rather than listing files.
+Use commit messages and diffs as evidence. Produce a PR body that is proportional to the change size and review risk.
 
 ${isUpdate ? 'New ' : ''}Commit Messages:
 ${commitMessages.join("\n")}
