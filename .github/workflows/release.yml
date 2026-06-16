@@ -49,23 +49,34 @@ jobs:
         run: npm version "${{ steps.release.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Check npm version availability
+        id: npm-version
         shell: bash
         run: |
           package_name="$(node -p "require('./package.json').name")"
           version="${{ steps.release.outputs.version }}"
 
           if npm view "${package_name}@${version}" version > /dev/null 2>&1; then
-            echo "::error::${package_name}@${version} is already published on npm. Create a release with a new version."
-            exit 1
+            echo "::warning::${package_name}@${version} is already published on npm. Skipping publish and continuing with the repository version bump."
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          echo "published=false" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: npm run build
 
       - name: Publish to npm
+        if: steps.npm-version.outputs.published != 'true'
         run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Checkout default branch for commit
+        run: |
+          git fetch origin ${{ github.event.repository.default_branch }}
+          git checkout -B ${{ github.event.repository.default_branch }} origin/${{ github.event.repository.default_branch }}
+          npm version "${{ steps.release.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Commit version bump
         run: |
