@@ -48,6 +48,17 @@ jobs:
       - name: Bump package version
         run: npm version "${{ steps.release.outputs.version }}" --no-git-tag-version --allow-same-version
 
+      - name: Check npm version availability
+        shell: bash
+        run: |
+          package_name="$(node -p "require('./package.json').name")"
+          version="${{ steps.release.outputs.version }}"
+
+          if npm view "${package_name}@${version}" version > /dev/null 2>&1; then
+            echo "::error::${package_name}@${version} is already published on npm. Create a release with a new version."
+            exit 1
+          fi
+
       - name: Build
         run: npm run build
 
