@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
   id-token: write
-  pull-requests: write
 
 jobs:
   publish:
@@ -79,11 +78,7 @@ jobs:
           git checkout -B ${{ github.event.repository.default_branch }} origin/${{ github.event.repository.default_branch }}
           npm version "${{ steps.release.outputs.version }}" --no-git-tag-version --allow-same-version
 
-      - name: Create version bump pull request
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.release.outputs.version }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      - name: Commit version bump
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -94,19 +89,5 @@ jobs:
             exit 0
           fi
 
-          branch="chore/release-bump-${VERSION}"
-          git checkout -B "$branch"
-          git commit -m "chore(release): bump version to ${VERSION}"
-          git push --force-with-lease origin "$branch"
-
-          existing_pr="$(gh pr list --head "$branch" --base "$DEFAULT_BRANCH" --state open --json number --jq '.[0].number')"
-          if [ -n "$existing_pr" ]; then
-            echo "Version bump pull request already exists: #${existing_pr}"
-            exit 0
-          fi
-
-          gh pr create \
-            --base "$DEFAULT_BRANCH" \
-            --head "$branch" \
-            --title "chore(release): bump version to ${VERSION}" \
-            --body "Updates package metadata to match the published npm release ${VERSION}."
+          git commit -m "chore(release): bump version to ${{ steps.release.outputs.version }}"
+          git push origin HEAD:${{ github.event.repository.default_branch }}
