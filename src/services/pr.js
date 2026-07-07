@@ -103,10 +103,6 @@ export function generatePRDescription(categorizedCommits, templateContent = null
 
   const totalCommits = allCommitLists.length;
 
-  if (templateContent) {
-    prBody += templateContent + "\n\n---\n\n";
-  }
-
   if (totalCommits > 0) {
     const summary = allCommitLists.slice(0, 3).join(", ");
     const rest = totalCommits - 3;

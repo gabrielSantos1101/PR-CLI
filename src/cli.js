@@ -194,7 +194,7 @@ async function main() {
       {
         type: "input",
         name: "devDescription",
-        message: "Resumo em 1-2 frases do que mudou (opcional):",
+        message: "Brief description of what changed in 1-2 sentences (optional):",
         default: "",
       },
     ]);

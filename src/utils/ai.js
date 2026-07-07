@@ -252,7 +252,6 @@ Generated PR Description:
       console.warn("   3. Try again with a smaller commit range\n");
     }
     
-    console.warn("Returning original template due to AI generation failure.");
-    return `<!-- Error: AI content generation failed. Please review and fill manually. Details: ${error.message} -->\n\n${templateContent}`;
+    return "";
   }
 }
