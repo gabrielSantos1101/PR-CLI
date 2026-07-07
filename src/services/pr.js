@@ -95,6 +95,10 @@ export async function chooseTemplate(templates) {
  * @returns {string} The formatted PR description.
  */
 export function generatePRDescription(categorizedCommits, templateContent = null) {
+  if (templateContent) {
+    return fillTemplate(categorizedCommits, templateContent);
+  }
+
   let prBody = "";
 
   const allCommitLists = Object.values(categorizedCommits)
@@ -104,7 +108,7 @@ export function generatePRDescription(categorizedCommits, templateContent = null
   const totalCommits = allCommitLists.length;
 
   if (totalCommits > 0) {
-    const summary = allCommitLists.slice(0, 3).join(", ");
+    const summary = allCommitLists.slice(0, 3).map(c => c.replace(/^- /, '')).join(", ");
     const rest = totalCommits - 3;
     prBody += `## Summary\n\n`;
     prBody += `${totalCommits} change(s) in this PR`;
@@ -135,6 +139,81 @@ export function generatePRDescription(categorizedCommits, templateContent = null
   }
 
   return prBody.trim();
+}
+
+/**
+ * Fills a PR template with categorized commit data, preserving the template structure.
+ * @param {Object.<string, string[]>} categorizedCommits
+ * @param {string} templateContent
+ * @returns {string}
+ */
+function fillTemplate(categorizedCommits, templateContent) {
+  const allCommits = Object.values(categorizedCommits)
+    .flat()
+    .filter(Boolean);
+
+  if (allCommits.length === 0) {
+    return templateContent.replace(/<!--[\s\S]*?-->/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  const totalCommits = allCommits.length;
+  const summary = allCommits.slice(0, 3).map(c => c.replace(/^- /, '')).join(", ");
+  const rest = totalCommits - 3;
+  let summaryLine = `${totalCommits} change(s) in this PR: ${summary}`;
+  if (rest > 0) summaryLine += ` and ${rest} more`;
+  summaryLine += '.';
+
+  const items = [];
+  for (const section in COMMIT_TYPES) {
+    const sectionTitle = COMMIT_TYPES[section];
+    if (categorizedCommits[sectionTitle]?.length > 0) {
+      items.push(`- **${sectionTitle}:** ${categorizedCommits[sectionTitle].map(c => c.replace(/^- /, '')).join(', ')}`);
+    }
+  }
+  if (categorizedCommits["Other Changes"]?.length > 0) {
+    categorizedCommits["Other Changes"].forEach(c => items.push(`- ${c.replace(/^- /, '')}`));
+  }
+  const changesText = items.join('\n');
+
+  let content = templateContent.replace(/<!--[\s\S]*?-->/g, '');
+
+  const lines = content.split('\n');
+  const output = [];
+  let replacedDesc = false;
+  let replacedChanges = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (!replacedChanges && /^###\s+What\s+was\s+changed\??\s*$/i.test(line.trim())) {
+      output.push(line);
+      output.push('');
+      output.push(changesText);
+      let j = i + 1;
+      while (j < lines.length && !/^#{1,3}\s/.test(lines[j].trim())) j++;
+      i = j - 1;
+      replacedChanges = true;
+      continue;
+    }
+
+    if (!replacedDesc && !/^#/.test(line.trim()) && line.trim() !== '' &&
+        i > 0 && /^##[^#]/.test(lines[i - 1].trim())) {
+      output.push(summaryLine);
+      replacedDesc = true;
+      continue;
+    }
+
+    if (!replacedDesc && !/^#/.test(line.trim()) && line.trim() !== '' &&
+        i > 1 && lines[i - 1].trim() === '' && /^##[^#]/.test(lines[i - 2].trim())) {
+      output.push(summaryLine);
+      replacedDesc = true;
+      continue;
+    }
+
+    output.push(line);
+  }
+
+  return output.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**
