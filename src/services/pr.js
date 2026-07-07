@@ -97,8 +97,26 @@ export async function chooseTemplate(templates) {
 export function generatePRDescription(categorizedCommits, templateContent = null) {
   let prBody = "";
 
+  const allCommitLists = Object.values(categorizedCommits)
+    .flat()
+    .filter(Boolean);
+
+  const totalCommits = allCommitLists.length;
+
   if (templateContent) {
     prBody += templateContent + "\n\n---\n\n";
+  }
+
+  if (totalCommits > 0) {
+    const summary = allCommitLists.slice(0, 3).join(", ");
+    const rest = totalCommits - 3;
+    prBody += `## Summary\n\n`;
+    prBody += `${totalCommits} change(s) in this PR`;
+    prBody += `: ${summary}`;
+    if (rest > 0) {
+      prBody += ` and ${rest} more`;
+    }
+    prBody += `.\n\n`;
   }
 
   for (const section in COMMIT_TYPES) {

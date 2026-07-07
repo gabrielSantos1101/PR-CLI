@@ -19,6 +19,7 @@ import {
   generateAIBranchType,
   generateAIBranchName,
   generateAIContent,
+  suggestBranchType,
 } from "./utils/ai.js";
 import {
   openGitHubPRInBrowser,
@@ -78,12 +79,9 @@ async function main() {
     
     let commitHistoryResult = await getCommitHistory(undefined, readOptions);
     
-    let commitMessages = Array.isArray(commitHistoryResult) 
-      ? commitHistoryResult 
-      : commitHistoryResult.messages;
-    let commitHashes = Array.isArray(commitHistoryResult) 
-      ? [] 
-      : commitHistoryResult.hashes;
+    let commitMessages = commitHistoryResult.messages || [];
+    let commitFullMessages = commitHistoryResult.fullMessages || commitMessages;
+    let commitHashes = commitHistoryResult.hashes || [];
 
     if (commitMessages.length === 0) {
       console.log("No new local commits found since the last push to origin.");
@@ -118,12 +116,9 @@ async function main() {
         if (commitCount > 0) {
           if (argv.refill) {
             commitHistoryResult = await getCommitHistory(commitCount, readOptions);
-            commitMessages = Array.isArray(commitHistoryResult) 
-              ? commitHistoryResult 
-              : commitHistoryResult.messages;
-            commitHashes = Array.isArray(commitHistoryResult) 
-              ? [] 
-              : commitHistoryResult.hashes;
+            commitMessages = commitHistoryResult.messages || [];
+            commitFullMessages = commitHistoryResult.fullMessages || commitMessages;
+            commitHashes = commitHistoryResult.hashes || [];
           } else {
             const { confirmCommits } = await inquirer.prompt([
               {
@@ -136,12 +131,9 @@ async function main() {
 
             if (confirmCommits) {
               commitHistoryResult = await getCommitHistory(commitCount, readOptions);
-              commitMessages = Array.isArray(commitHistoryResult) 
-                ? commitHistoryResult 
-                : commitHistoryResult.messages;
-              commitHashes = Array.isArray(commitHistoryResult) 
-                ? [] 
-                : commitHistoryResult.hashes;
+              commitMessages = commitHistoryResult.messages || [];
+              commitFullMessages = commitHistoryResult.fullMessages || commitMessages;
+              commitHashes = commitHistoryResult.hashes || [];
             } else {
               console.log("Exiting without generating PR description.");
               return;
@@ -174,12 +166,9 @@ async function main() {
           return;
         }
         commitHistoryResult = await getCommitHistory(commitCount, readOptions);
-        commitMessages = Array.isArray(commitHistoryResult) 
-          ? commitHistoryResult 
-          : commitHistoryResult.messages;
-        commitHashes = Array.isArray(commitHistoryResult) 
-          ? [] 
-          : commitHistoryResult.hashes;
+        commitMessages = commitHistoryResult.messages || [];
+        commitFullMessages = commitHistoryResult.fullMessages || commitMessages;
+        commitHashes = commitHistoryResult.hashes || [];
       }
 
       if (commitMessages.length === 0) {
@@ -205,7 +194,7 @@ async function main() {
       {
         type: "input",
         name: "devDescription",
-        message: "Please provide a brief description of what you did:",
+        message: "Resumo em 1-2 frases do que mudou (opcional):",
         default: "",
       },
     ]);
@@ -260,7 +249,7 @@ async function main() {
     let prDescription;
     if (templateContent) {
       const aiGeneratedContent = await generateAIContent(
-        commitMessages,
+        commitFullMessages,
         templateContent,
         templateLanguage,
         devDescription,
@@ -269,6 +258,7 @@ async function main() {
       );
       prDescription = aiGeneratedContent;
       if (
+        !prDescription ||
         prDescription.startsWith("<!-- Error: AI content generation failed.")
       ) {
         console.warn(
@@ -400,10 +390,7 @@ async function main() {
               }
             }
           } else {
-            console.log(
-              "Skipping AI branch name generation. Suggesting type based on commits."
-            );
-            const suggestedType = await generateAIBranchType(commitMessages);
+            const suggestedType = suggestBranchType(commitMessages);
             const { manualDescription } = await inquirer.prompt([
               {
                 type: "input",

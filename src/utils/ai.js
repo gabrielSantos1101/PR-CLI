@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import ora from "ora";
 import { COMMIT_TYPES } from "../constants.js";
-import { formatDiffsForAI } from "../services/commit.js";
+import { formatDiffsForAI, extractTemplateStructure } from "../services/commit.js";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
@@ -15,27 +15,71 @@ const model = genAI.getGenerativeModel({
 });
 
 /**
- * Generates a suggested branch type using Google Gemini.
+ * Heuristically infers the dominant conventional commit type from commit messages.
+ * @param {string[]} commitMessages
+ * @returns {string} The inferred branch type (e.g., "feat", "fix").
+ */
+export function suggestBranchType(commitMessages) {
+  const typeCount = {};
+  for (const msg of commitMessages) {
+    const match = msg.match(/^(\w+)/);
+    if (match && COMMIT_TYPES[match[1]]) {
+      typeCount[match[1]] = (typeCount[match[1]] || 0) + 1;
+    }
+  }
+
+  let bestType = "feat";
+  let bestCount = 0;
+  for (const [type, count] of Object.entries(typeCount)) {
+    if (count > bestCount) {
+      bestType = type;
+      bestCount = count;
+    }
+  }
+  return bestType;
+}
+
+/**
+ * Suggests a branch name using heuristic when AI is unavailable.
+ * @param {string[]} commitMessages
+ * @returns {string} A branch name like "fix/login-error".
+ */
+function suggestBranchName(commitMessages) {
+  const type = suggestBranchType(commitMessages);
+
+  const words = [];
+  for (const msg of commitMessages) {
+    const cleaned = msg
+      .replace(/^(\w+)(\(.+\))?:\s*/i, "")
+      .replace(/[^a-zA-Z0-9\s]/g, "")
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !["the", "and", "for", "with", "this", "that"].includes(w));
+    words.push(...cleaned);
+  }
+
+  const uniqueWords = [...new Set(words)];
+  const shortDesc = uniqueWords.slice(0, 3).join("-") || "change";
+  return `${type}/${shortDesc}`;
+}
+
+/**
+ * Generates a suggested branch type using Google Gemini, with heuristic fallback.
  * @param {string[]} commitMessages An array of raw commit messages.
- * @returns {Promise<string>} The AI-generated branch type.
+ * @returns {Promise<string>} The generated branch type.
  */
 export async function generateAIBranchType(commitMessages) {
   if (!GEMINI_API_KEY) {
     console.warn(
-      "GEMINI_API_KEY is not set. Skipping AI branch type generation."
+      "GEMINI_API_KEY is not set. Using heuristic to infer branch type."
     );
-    return "feat";
+    return suggestBranchType(commitMessages);
   }
 
   const spinner = ora("Generating AI branch type...").start();
   const prompt = `
 You are an expert in inferring Git conventional commit types from commit messages.
-Your task is to suggest the most appropriate conventional commit type (e.g., "feat", "fix", "docs", "refactor", "chore", "style", "test", "perf", "ci", "build", "revert") based on the provided commit messages.
-
-Rules:
-1.  Return only the type string, without any additional text or formatting.
-2.  If multiple types seem applicable, choose the most dominant one.
-3.  If no clear type can be inferred, default to "feat".
+Return only the type string (e.g., "feat", "fix", "docs", "refactor", "chore", "style", "test", "perf", "ci", "build", "revert"). No extra text.
 
 Commit Messages:
 ${commitMessages.join("\n")}
@@ -52,13 +96,13 @@ Suggested Branch Type:
       return generatedType;
     }
     spinner.warn(
-      "AI generated an unrecognized branch type. Falling back to 'feat'."
+      "AI generated an unrecognized branch type. Falling back to heuristic."
     );
-    return "feat";
+    return suggestBranchType(commitMessages);
   } catch (error) {
     spinner.fail("Error generating AI branch type.");
     console.error("Error generating AI branch type:", error.message);
-    return "feat";
+    return suggestBranchType(commitMessages);
   }
 }
 
@@ -70,29 +114,25 @@ Suggested Branch Type:
 export async function generateAIBranchName(commitMessages) {
   if (!GEMINI_API_KEY) {
     console.warn(
-      "GEMINI_API_KEY is not set. Skipping AI branch name generation."
+      "GEMINI_API_KEY is not set. Using heuristic to generate branch name."
     );
-    return "";
+    return suggestBranchName(commitMessages);
   }
 
   const spinner = ora("Generating AI branch name...").start();
   const prompt = `
 You are an expert in generating very short, objective, kebab-cased Git branch names following conventional commit types.
-Your task is to create a concise, descriptive branch name in the format "type/description-kebab-case" based on the provided commit messages.
+Create a concise branch name in the format "type/description-kebab-case" based on the provided commit messages.
 
 Rules:
-1.  The branch name must start with a conventional commit type (e.g., "feat", "fix", "docs", "refactor", "chore", "style", "test", "perf", "ci", "build", "revert"). Infer the most appropriate type from the commit messages.
-2.  The description part should be in kebab-case (lowercase, words separated by hyphens).
-3.  It must be very short and objective, reflecting the core purpose of the changes. Aim for 2-4 words for the description part.
-4.  The entire branch name should be concise.
-5.  Example: If commits are "Add user authentication and authorization", the output should be "feat/add-auth".
-6.  Example: If commits are "Fix bug in login page where user couldn't log in", the output should be "fix/login-bug".
-7.  Example: If commits are "Update README with new installation steps", the output should be "docs/update-readme".
+1. Start with a conventional commit type (e.g., "feat", "fix", "docs", "refactor", "chore", "style", "test", "perf", "ci", "build", "revert").
+2. Description in kebab-case, 2-4 words.
+3. Examples: "feat/add-auth", "fix/login-bug", "docs/update-readme".
 
 Commit Messages:
 ${commitMessages.join("\n")}
 
-Generated Branch Name (type/description-kebab-case):
+Generated Branch Name:
 `;
 
   try {
@@ -105,13 +145,13 @@ Generated Branch Name (type/description-kebab-case):
       return generatedName;
     }
     spinner.warn(
-      "AI generated an unrecognized branch name. Returning empty string."
+      "AI generated an unrecognized branch name. Falling back to heuristic."
     );
-    return "";
+    return suggestBranchName(commitMessages);
   } catch (error) {
     spinner.fail("Error generating AI branch name.");
     console.error("Error generating AI branch name:", error.message);
-    return "";
+    return suggestBranchName(commitMessages);
   }
 }
 
@@ -143,59 +183,36 @@ export async function generateAIContent(
   const isUpdate = existingPRDescription !== null;
 
   const prompt = `
-You are a senior Pull Request description analyst and editor.
-Return only the final markdown PR description. Do not wrap it in code fences.
+You are a senior Pull Request description writer. Return only the final markdown PR description. Do not wrap it in code fences.
 
 Goal:
-${isUpdate ? "Update the existing PR description with the new changes." : "Fill the provided PR template with the changes."}
+${isUpdate ? "Update the existing PR description with the new changes." : "Write a PR description based on the commits below."}
 
-Style rules:
-1. Be reviewer-focused: explain what changed, why it matters, how to verify it, and any risks or follow-ups.
-2. Use the PR template as the canonical structure for the final description.
-3. Preserve the template's headings, order, comments, checklist items, issue sections, and evidence sections.
-4. Do not add new top-level headings unless the selected template has no place for essential reviewer context.
-5. Use concise bullets, but include enough detail for a reviewer to understand the practical impact.
-6. For small PRs, keep sections short. For large, cross-cutting, risky, or architectural PRs, use grouped bullets with subsystem names.
-7. Do not invent details. Base content on commit messages, diffs, the existing PR body, and the developer description.
-8. Avoid noisy file-by-file dumps, but name important files/modules when that helps reviewers navigate the change.
-9. Keep placeholders or write "N/A" only when there is genuinely no evidence for that section.
-10. Generate the content in this language: ${templateLanguage}.
+Guidelines:
+1. Start with a short (1-3 sentence) summary of what this PR does and why.
+2. List the changes as concise bullet points grouped by concern or theme — not by file or commit.
+3. If relevant, include brief testing instructions (what to verify, not how to run tests).
+4. Mention any important notes: breaking changes, dependencies, or follow-up work.
+5. Write in ${templateLanguage}.
+6. Keep it focused and useful — avoid filler, placeholders, or empty sections.
+7. Base content only on the evidence provided (commits, diffs, developer description).
 
-Content judgment:
-1. Prefer "useful and complete" over artificially short.
-2. Include concrete testing steps when the template asks for tests, QA, validation, or evidence.
-3. Include related issue references when provided by commits, existing content, or developer description.
-4. Preserve checklist state from the template or existing PR; only check an item when the evidence supports it.
-5. Mention limitations, known gaps, rollback notes, or follow-ups when the evidence points to them.
-6. Summarize broad changes by concern or subsystem, not by every individual file.
+${templateContent ? `Use this template structure (fill only sections where you have content — remove empty ones):
 
-PR Template (Language: ${templateLanguage}):
-${templateContent}
-
-${isUpdate ? `
-Update mode rules:
-1. Return the complete updated PR description, not a patch or summary.
-2. Rebuild the final description in the same order and shape as the selected PR template.
-3. Carry over existing filled content, manual notes, checklist states, placeholders, and issue tags that are still accurate.
-4. Add only new, non-duplicated information from the new commits and diffs.
-5. Remove or revise existing content only when contradicted by the new changes.
-6. If existing content does not map to the template, keep it only when it is useful to reviewers and place it in the closest matching section.
-7. If the existing PR was already detailed and accurate, preserve that level of useful detail instead of compressing it.
-
-Existing PR Description:
-${existingPRDescription}
-
----
-
+${extractTemplateStructure(templateContent)}
 ` : ''}
-Use commit messages and diffs as evidence. Produce a PR body that is proportional to the change size and review risk.
+${isUpdate ? `
+Existing PR to update (preserve any accurate content, add new information):
 
-${isUpdate ? 'New ' : ''}Commit Messages:
+${existingPRDescription}
+` : ''}
+
+Commit Messages:
 ${commitMessages.join("\n")}
 
 ${commitDiffs ? formatDiffsForAI(commitDiffs, commitMessages) : ''}
 
-Developer's Description of ${isUpdate ? 'New ' : ''}Work:
+Developer's Description:
 ${devDescription || "No additional description provided."}
 
 Generated PR Description:
