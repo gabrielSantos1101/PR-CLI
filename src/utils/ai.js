@@ -188,21 +188,22 @@ You are a senior Pull Request description writer. Return only the final markdown
 Goal:
 ${isUpdate ? "Update the existing PR description with the new changes." : "Write a PR description based on the commits below."}
 
-Guidelines:
-1. Start with a short (1-3 sentence) summary of what this PR does and why.
-2. List the changes as concise bullet points grouped by concern or theme — not by file or commit.
-3. If relevant, include brief testing instructions (what to verify, not how to run tests).
-4. Mention any important notes: breaking changes, dependencies, or follow-up work.
-5. Write in ${templateLanguage}.
-6. Keep it focused and useful — avoid filler, placeholders, or empty sections.
-7. Base content only on the evidence provided (commits, diffs, developer description).
+Hard Rules:
+1. NO placeholder text — never write "#ISSUE_NUMBER", "TBD", "N/A", or empty list items.
+2. If a section has no content, OMIT it entirely. Do not leave blank sections.
+3. Every bullet must be specific — name files, components, packages, or concepts. No vague "Fixed various bugs".
+4. Group changes by theme/area (e.g. "Backend (Rust)", "Module SDK", "UI"), NOT by commit or file.
+5. Testing instructions must be concrete scenarios ("Play a YouTube livestream → slider hides"), not generic ("Run the tests").
+6. Checklist: mark [x] ONLY for items that are demonstrably true from the evidence provided.
+7. Write in ${templateLanguage}.
+8. Summary must be 1-3 sentences explaining WHAT and WHY together.
 
-${templateContent ? `Use this template structure (fill only sections where you have content — remove empty ones):
+${templateContent ? `Use this template structure, but OMIT any section where you have no content:
 
 ${extractTemplateStructure(templateContent)}
 ` : ''}
 ${isUpdate ? `
-Existing PR to update (preserve any accurate content, add new information):
+Existing PR to update (preserve accurate content, add new information, replace outdated):
 
 ${existingPRDescription}
 ` : ''}

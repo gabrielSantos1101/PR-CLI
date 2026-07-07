@@ -264,10 +264,10 @@ async function main() {
         console.warn(
           "AI generation failed, falling back to categorized commit description."
         );
-        prDescription = generatePRDescription(categorized, templateContent);
+        prDescription = generatePRDescription(categorized, templateContent, devDescription, commitFullMessages);
       }
     } else {
-      prDescription = generatePRDescription(categorized, templateContent);
+      prDescription = generatePRDescription(categorized, templateContent, devDescription, commitFullMessages);
     }
 
     console.log("\n--- Generated PR Description ---\n");
