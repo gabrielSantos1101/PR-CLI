@@ -266,7 +266,7 @@ export async function getCommitHistory(count, options = {}) {
 
     if (count) {
       commitLogs = await executeCommand(
-        `git log -n ${count} --pretty=format:"%s"`,
+        `git log -n ${count} --pretty=format:"%s%x1e%b%x1f"`,
         "Fetching specific number of commits...",
         false
       );
@@ -291,7 +291,7 @@ export async function getCommitHistory(count, options = {}) {
         false
       );
       commitLogs = await executeCommand(
-        `git log ${lastPushCommit}..HEAD --pretty=format:"%s"`,
+        `git log ${lastPushCommit}..HEAD --pretty=format:"%s%x1e%b%x1f"`,
         "Fetching commits since last push...",
         false
       );
@@ -307,17 +307,31 @@ export async function getCommitHistory(count, options = {}) {
     }
 
     spinner.succeed("Commit history fetched.");
-    const messages = commitLogs.split("\n").filter(Boolean);
+
+    const rawCommits = commitLogs.split("\x1f").filter(Boolean);
+    const messages = [];
+    const fullMessages = [];
+
+    for (const raw of rawCommits) {
+      const parts = raw.split("\x1e");
+      const subject = parts[0]?.trim();
+      const body = parts.slice(1).join("\x1e").trim();
+      if (subject) {
+        messages.push(subject);
+        fullMessages.push(body ? `${subject}\n\n${body}` : subject);
+      }
+    }
 
     if (readDiffs) {
       return {
         messages,
+        fullMessages,
         hashes: commitHashes,
         count: messages.length
       };
     }
 
-    return messages;
+    return { messages, fullMessages, count: messages.length };
   } catch (error) {
     spinner.fail("Failed to get Git commit history.");
     console.error(

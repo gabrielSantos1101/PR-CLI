@@ -1,6 +1,34 @@
 import { COMMIT_TYPES } from "../constants.js";
 
 /**
+ * Extracts the essential structure from a PR template (headings and key sections),
+ * stripping boilerplate comments and placeholder text to reduce AI token usage.
+ * @param {string} templateContent
+ * @returns {string} The condensed template structure.
+ */
+export function extractTemplateStructure(templateContent) {
+  const lines = templateContent.split("\n");
+  const structure = [];
+  let inComment = false;
+
+  for (const line of lines) {
+    if (line.trim().startsWith("<!--")) {
+      inComment = true;
+    }
+    if (!inComment && line.trim().length > 0) {
+      if (/^#{1,3}\s/.test(line) || /^- \[/.test(line) || /^---/.test(line)) {
+        structure.push(line);
+      }
+    }
+    if (inComment && line.trim().endsWith("-->")) {
+      inComment = false;
+    }
+  }
+
+  return structure.length > 0 ? structure.join("\n") : templateContent;
+}
+
+/**
  * Categorizes commit messages based on conventional commit prefixes.
  * @param {string[]} commitMessages An array of raw commit messages.
  * @returns {Object.<string, string[]>}
