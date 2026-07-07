@@ -94,9 +94,9 @@ export async function chooseTemplate(templates) {
  * @param {string|null} templateContent Optional content from a PR template.
  * @returns {string} The formatted PR description.
  */
-export function generatePRDescription(categorizedCommits, templateContent = null) {
+export function generatePRDescription(categorizedCommits, templateContent = null, devDescription = "", commitFullMessages = []) {
   if (templateContent) {
-    return fillTemplate(categorizedCommits, templateContent);
+    return fillTemplate(categorizedCommits, templateContent, devDescription, commitFullMessages);
   }
 
   let prBody = "";
@@ -147,7 +147,7 @@ export function generatePRDescription(categorizedCommits, templateContent = null
  * @param {string} templateContent
  * @returns {string}
  */
-function fillTemplate(categorizedCommits, templateContent) {
+function fillTemplate(categorizedCommits, templateContent, devDescription = "", commitFullMessages = []) {
   const allCommits = Object.values(categorizedCommits)
     .flat()
     .filter(Boolean);
@@ -175,12 +175,15 @@ function fillTemplate(categorizedCommits, templateContent) {
   }
   const changesText = items.join('\n');
 
-  let content = templateContent.replace(/<!--[\s\S]*?-->/g, '');
+  let content = templateContent.replace(/\r\n/g, '\n').replace(/<!--[\s\S]*?-->/g, '');
+
+  const hasDevDescription = devDescription && devDescription.trim().length > 0;
 
   const lines = content.split('\n');
   const output = [];
   let replacedDesc = false;
   let replacedChanges = false;
+  let replacedWhy = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -193,6 +196,17 @@ function fillTemplate(categorizedCommits, templateContent) {
       while (j < lines.length && !/^#{1,3}\s/.test(lines[j].trim())) j++;
       i = j - 1;
       replacedChanges = true;
+      continue;
+    }
+
+    if (!replacedWhy && hasDevDescription && /^###\s+Why\??\s*$/i.test(line.trim())) {
+      output.push(line);
+      output.push('');
+      output.push(`- ${devDescription.trim()}`);
+      let j = i + 1;
+      while (j < lines.length && !/^#{1,3}\s/.test(lines[j].trim())) j++;
+      i = j - 1;
+      replacedWhy = true;
       continue;
     }
 
@@ -213,7 +227,52 @@ function fillTemplate(categorizedCommits, templateContent) {
     output.push(line);
   }
 
-  return output.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return cleanTemplate(output.join('\n'));
+}
+
+/**
+ * Removes placeholder/instructional text from template sections that weren't filled.
+ * Keeps all section headings, checkboxes, list items, and structural elements.
+ */
+function cleanTemplate(content) {
+  const placeholderPatterns = [
+    /ISSUE_NUMBER/,
+    /Root cause of the bug/,
+    /Bugfix or refactor\. Summarize/,
+    /Describe clearly and objectively/,
+    /Affected areas \(components/,
+    /Relevant visual or behavioral/,
+    /Motivation for the refactor/,
+    /\(e\.g\., fixes #\d+\)/,
+    /Logs, screenshots, or GIFs/,
+    /Known risks, trade-offs/,
+    /Extra information for reviewers/,
+    /If applicable, add screenshots/,
+  ];
+
+  const normalized = content.replace(/\r\n/g, '\n');
+  const lines = normalized.split('\n');
+  const cleaned = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    let isPlaceholder = false;
+    for (const pattern of placeholderPatterns) {
+      if (pattern.test(trimmed)) {
+        isPlaceholder = true;
+        break;
+      }
+    }
+    if (isPlaceholder) continue;
+
+    if (/^-\s*$/.test(trimmed)) continue;
+
+    cleaned.push(line);
+  }
+
+  return cleaned.join('\n').replace(/\n{4,}/g, '\n\n\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 /**
